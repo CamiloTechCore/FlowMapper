@@ -8,7 +8,7 @@ import GalleryPage from './pages/Gallery/GalleryPage';
 import TeamsPage from './pages/Teams/TeamsPage';
 import TeamDetailPage from './pages/Teams/TeamDetailPage';
 import FlowMapPage from './pages/FlowMap/FlowMapPage';
-//import ConfigPage from './pages/Config/ConfigPage';
+import TeamOverviewPage from './pages/FlowMap/TeamOverviewPage';
 import { GAS_URL } from './services/config';
 
 function TeamRoute() {
@@ -35,7 +35,7 @@ function Shell() {
   const { fetchTeams, fetchAllFlows, fetchAllProcesses, teams, error } = useData();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const page = pathname.startsWith('/equipos') ? 'teams' : pathname === '/configuracion' ? 'config' : 'gallery';
+  const page = pathname.startsWith('/equipos') ? 'teams' : pathname === '/vista-general' ? 'overview' : 'gallery';
   const selectedTeam = teams.find(t => pathname === '/equipos/' + t.id);
   const reload = () => { fetchTeams(); fetchAllFlows(); fetchAllProcesses(); };
   useEffect(() => {
@@ -43,20 +43,19 @@ function Shell() {
   }, [fetchTeams, fetchAllFlows, fetchAllProcesses]);
   return <div className="app-shell">
     {!pathname.startsWith('/flujos/') && <Sidebar page={page} selectedTeam={selectedTeam}
-      onNav={p => navigate({ gallery: '/', teams: '/equipos', config: '/configuracion' }[p])}
+      onNav={p => navigate({ gallery: '/', teams: '/equipos', overview: '/vista-general' }[p])}
       onSelectTeam={t => { if (t) navigate('/equipos/' + t.id); }} />}
     <main className="main-area">
       {(!GAS_URL || error) && <div className="connection-notice" role="alert">
         <span>{error || 'Configura la URL de Google Apps Script para cargar y guardar tus datos.'}</span>
         {GAS_URL && <button className="btn btn-secondary btn-sm" onClick={reload}>Reintentar</button>}
-        <button className="btn btn-secondary btn-sm" onClick={() => navigate('/configuracion')}>Configuración</button>
       </div>}
       <div className="route-content" key={pathname}><Routes>
         <Route path="/" element={<GalleryPage onOpenFlow={f => navigate('/flujos/' + f.id)} />} />
         <Route path="/equipos" element={<TeamsPage onSelectTeam={t => navigate('/equipos/' + t.id)} />} />
         <Route path="/equipos/:teamId" element={<TeamRoute />} />
         <Route path="/flujos/:flowId" element={<FlowRoute />} />
-        {/* <Route path="/configuracion" element={<ConfigPage />} /> */}
+        <Route path="/vista-general" element={<TeamOverviewPage />} />
         <Route path="/constructor" element={<Navigate to="/equipos" replace />} />
         <Route path="/mapa" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Empty title="Página no encontrada" action={<button className="btn btn-secondary" onClick={() => navigate('/')}>Ir al inicio</button>} />} />

@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests', testMatch: '**/*.spec.mjs', fullyParallel: false,
-  use: { baseURL: 'http://127.0.0.1:5174', browserName: 'chromium', headless: true, screenshot: 'only-on-failure' },
+  use: { baseURL: 'http://127.0.0.1:5174', browserName: 'chromium', headless: true, screenshot: 'off', trace: 'off', video: 'off' },
   webServer: {
     command: 'npm run dev -- --host 127.0.0.1 --port 5174 --strictPort',
     url: 'http://127.0.0.1:5174', reuseExistingServer: false,

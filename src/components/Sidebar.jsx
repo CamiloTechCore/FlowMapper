@@ -3,8 +3,8 @@ import { useData } from '../context/dataStore';
 
 const NAV = [
   { id: 'gallery',  icon: '🗂',  label: 'Biblioteca de Flujos' },
+  { id: 'overview', icon: '⌘', label: 'Vista general' },
   { id: 'teams',    icon: '👥',  label: 'Equipos' },
-  { id: 'config',   icon: '⚙️', label: 'Configuración' },
 ];
 
 export default function Sidebar({ page, onNav, selectedTeam, onSelectTeam }) {

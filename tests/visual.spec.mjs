@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
 import { createBackend, seedHierarchy, graphPayload } from './gas-harness.mjs';
 import { mockBackend, addNode, connect } from './editor-helpers.mjs';
 
@@ -33,8 +32,11 @@ test('RF-CFD-001: figuras, texto completo, biblioteca, recorrido 2D y edición p
     return copy.left >= box.left && copy.right <= box.right && copy.top >= box.top && copy.bottom <= box.bottom;
   }))).toBe(true);
   await expect(page.locator('.react-flow__edge-path[style*="stroke-dasharray"]')).toHaveCount(2);
-  mkdirSync('docs/validation', { recursive: true });
-  await page.screenshot({ path: 'docs/validation/editor-rf-cfd-001.png', fullPage: true });
+  await expect.poll(() => page.locator('.wf-canvas').evaluate(el => {
+    const box = el.getBoundingClientRect();
+    return [...el.querySelectorAll('.react-flow__node')].every(n => { const r = n.getBoundingClientRect(); return r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= box.bottom; });
+  })).toBe(true);
+  expect(await page.locator('.wf-palette').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   await page.getByRole('button', { name: 'Guardar flujo', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByText('Recién guardado', { exact: true })).toBeVisible();
@@ -48,14 +50,13 @@ test('RF-CFD-001: figuras, texto completo, biblioteca, recorrido 2D y edición p
   expect(await page.locator('.wf-read-canvas').evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(255, 255, 255)');
   await page.getByRole('button', { name: '▶ Recorrer', exact: true }).click();
   await page.getByRole('button', { name: '→ Continuar', exact: true }).click();
-  await page.getByRole('button', { name: '→ Registrar', exact: true }).click();
+  await page.getByRole('button', { name: '✗ No', exact: true }).click();
   await expect.poll(() => page.locator('.diagram-node.is-selected').evaluate(el => {
     const node = el.getBoundingClientRect(), area = el.closest('.wf-canvas').getBoundingClientRect();
     return Math.round(node.x + node.width / 2 - area.x - area.width / 2);
   })).toBe(0);
   await page.getByRole('button', { name: '→ Continuar', exact: true }).click();
   await expect(page.getByText('✓ Fin del recorrido', { exact: true })).toBeVisible();
-  await page.screenshot({ path: 'docs/validation/mapa-rf-cfd-001.png', fullPage: true });
   await page.getByRole('button', { name: 'Editar flujo', exact: true }).click();
   await page.getByLabel('Nombre del flujo', { exact: true }).fill('Revisión actualizada');
   await page.getByLabel('Título del nodo', { exact: true }).fill('Inicio actualizado');
@@ -110,14 +111,14 @@ test('límite visible: una conexión por lado y cuatro por figura', async ({ pag
   for (let i = 1; i <= 5; i++) await addNode(page, 'Actividad', 'Actividad ' + i);
   await connect(page, 'Inicio', 'Actividad 1');
   await connect(page, 'Inicio', 'Actividad 2');
-  await expect(page.getByRole('status')).toContainText('Anclaje ocupado');
+  await expect(page.getByRole('dialog').getByRole('status')).toContainText('Anclaje ocupado');
   await expect(page.locator('.react-flow__edge')).toHaveCount(1);
   await connect(page, 'Inicio', 'Actividad 2', 'Superior');
   await connect(page, 'Actividad 3', 'Inicio', 'Inferior', 'Derecho');
   await connect(page, 'Inicio', 'Actividad 4', 'Izquierdo');
   await expect(page.locator('.react-flow__edge')).toHaveCount(4);
   await connect(page, 'Inicio', 'Actividad 5');
-  await expect(page.getByRole('status')).toContainText('Máximo 4');
+  await expect(page.getByRole('dialog').getByRole('status')).toContainText('Máximo 4');
   await expect(page.locator('.react-flow__edge')).toHaveCount(4);
 });
 
@@ -158,14 +159,12 @@ test('constructor y biblioteca móviles no desbordan; cambia entre paneles y lie
   backend.request('saveFullFlow', graphPayload(team, process));
   await mockBackend(page, backend); await page.goto('/');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: 'docs/validation/biblioteca-mobile.png', fullPage: true });
   await page.getByRole('button', { name: '+ Nuevo flujo', exact: true }).click();
   await page.getByRole('button', { name: 'Abrir constructor', exact: true }).click();
   await addNode(page, 'Decisión', 'Decidir');
   await page.getByRole('button', { name: 'Lienzo', exact: true }).click();
   await page.getByRole('button', { name: 'Ver todo', exact: true }).click();
   await expect(page.locator('.wf-canvas')).toBeVisible();
-  await page.screenshot({ path: 'docs/validation/editor-visual-mobile.png', fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.keyboard.press('Escape');
   await expect(page.getByText('Hay cambios sin guardar.', { exact: true })).toBeVisible();
@@ -178,7 +177,6 @@ test('constructor y biblioteca móviles no desbordan; cambia entre paneles y lie
   await expect(page.getByRole('button', { name: '→ Continuar', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(page.getByLabel('Detalle del nodo', { exact: true })).toHaveCSS('opacity', '1');
-  await page.screenshot({ path: 'docs/validation/mapa-visual-mobile.png', fullPage: true });
 });
 
 test('arrastrar desde paleta, conectar puertos, mover nodo y desplazar el lienzo 2D', async ({ page }) => {
@@ -215,4 +213,26 @@ test('arrastrar desde paleta, conectar puertos, mover nodo y desplazar el lienzo
   const graph = backend.request('getFullFlow', { flowId: backend.request('getAllFlows').data[0].id }).data;
   expect(graph.nodes.find(n => n.titulo === 'Revisar').metadata.editorPosition.y).toBeGreaterThan(0);
   await page.reload(); await expect(page.locator('.react-flow__edge')).toHaveCount(1);
+});
+
+
+test('todas las formas adaptan textos largos sin recortes y conservan cuatro anclajes', async ({ page }) => {
+  await page.setViewportSize({ width: 1500, height: 1000 });
+  const backend = createBackend(), { team } = seedHierarchy(backend);
+  await mockBackend(page, backend); await page.goto('/equipos/' + team.id);
+  await page.getByRole('button', { name: '+ Flujo', exact: true }).click();
+  await page.getByLabel('Título del nodo', { exact: true }).fill('Un título largo para comprobar el ajuste de cada actividad en su figura');
+  await page.getByLabel('Descripción del nodo', { exact: true }).fill('Una descripción detallada con varias líneas y unaReferenciaSinEspaciosMuyLargaQueDebePartirseDentroDeLaFigura '.repeat(3));
+  for (const shape of ['rectangle','diamond','oval','cylinder','document','note','subprocess','parallelogram','hexagon']) {
+    await page.getByLabel('Forma', { exact: true }).selectOption(shape);
+    await expect(page.locator('.diagram-node .react-flow__handle')).toHaveCount(4);
+    await expect.poll(() => page.locator('.diagram-node').evaluate(n => {
+      const text = n.querySelector('.diagram-copy'), h = n.offsetHeight, w = n.offsetWidth;
+      if (text.scrollWidth > text.clientWidth + 1 || text.scrollHeight > text.clientHeight + 1) return false;
+      if (n.dataset.shape === 'diamond') return text.offsetWidth / w + text.offsetHeight / h < 1;
+      if (n.dataset.shape === 'oval') return (text.offsetWidth / w) ** 2 + (text.offsetHeight / h) ** 2 < 1;
+      if (n.dataset.shape === 'cylinder') return (h - text.offsetHeight) / 2 > 40;
+      return text.offsetWidth + 40 < w && text.offsetHeight + 40 < h;
+    })).toBe(true);
+  }
 });

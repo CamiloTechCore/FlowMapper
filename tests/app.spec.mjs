@@ -65,9 +65,9 @@ test('las ramas de decisión recorren destinos distintos y la galería filtra', 
 
 test('un backend HTML muestra error comprensible y no conexión exitosa', async ({ page }) => {
   await page.route('https://script.google.com/**', route => route.fulfill({ contentType: 'text/html', body: '<html>Login</html>' }));
-  await page.goto('/configuracion');
-  await page.getByRole('button', { name: '🔌 Probar Conexión', exact: true }).click();
-  await expect(page.getByText(/✗ GAS no devolvió JSON/)).toBeVisible();
+  await page.goto('/');
+  await expect(page.getByRole('alert')).toContainText('GAS no devolvió JSON');
+  await expect(page.getByRole('button', { name: 'Configuración', exact: true })).toHaveCount(0);
   await expect(page.getByText('● GAS Conectado', { exact: true })).toHaveCount(0);
 });
 

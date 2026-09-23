@@ -15,3 +15,23 @@
 .wf-canvas:focus-visible { outline: 2px solid #447deb; outline-offset: -2px; }
 .wf-editor .wf-edit-tools button { font-size: 11px; padding: 4px 8px; }
 @media(max-width:760px) { .wf-edit-tools { padding: 5px 8px; } .wf-edit-tools small { display: none; } .wf-catalog { display: block; } }
+
+.wf-palette .wf-catalog { display: block; }
+.wf-palette, .wf-inspector, .wf-catalog details { min-width: 0; }
+.wf-catalog .wf-shape-library { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wf-catalog .wf-shape-library button > span { width: auto; font-size: 18px; }
+
+/* Área de interacción: 5 px adicionales alrededor del puerto visible de 10 px. */
+.diagram-node .react-flow__handle { width: 20px; height: 20px; border: 0; background: transparent; }
+.diagram-node .react-flow__handle::after { content: ''; position: absolute; inset: 5px; border: 2px solid #fff; border-radius: 50%; background: #6088c7; pointer-events: none; }
+.diagram-node[data-shape="text"] { min-height: 90px; }
+.diagram-node[data-shape="text"].is-selected { outline: 1px dashed #6088c7; outline-offset: 3px; }
+.diagram-node[data-shape="text"] .diagram-copy { text-align: left; }
+.diagram-node[data-shape="text"] strong { font-weight: 400; }
+.diagram-tooltip { position: fixed; width: min(320px, calc(100vw - 24px)); max-height: 260px; overflow: auto; padding: 14px 16px; box-sizing: border-box; border: 1px solid #dce4ef; border-radius: 12px; background: white; color: #344255; box-shadow: 0 8px 26px #25355026; font: 13px/1.6 system-ui,sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; z-index: 2100; }
+.react-flow__node:has(.diagram-node:hover), .react-flow__node:focus-within { z-index: 1001 !important; }
+.diagram-links { position: absolute; right: 7px; top: 7px; display: flex; flex-wrap: wrap; gap: 4px; max-width: 100px; }
+.diagram-links a { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid #d4deec; border-radius: 7px; background: #fff; color: #496fad; text-decoration: none; font: 20px/1 system-ui; }
+.diagram-links a:hover { background: #eef4ff; }
+.wf-editor .wf-flow-fields { grid-template-columns: 1.2fr .9fr .65fr 1fr; }
+@media(max-width:760px) { .wf-editor .wf-flow-fields { grid-template-columns: 1fr 1fr; } .wf-flow-fields > :last-child { display: none; } }

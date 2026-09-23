@@ -1,3 +1,4 @@
+import { FLOW_STATES, normalizeStatus } from '../../workflow/model';
 import React, { useState } from 'react';
 import { useData } from '../../context/dataStore';
 import { Modal, Empty, Badge } from '../../components/UI';
@@ -133,9 +134,9 @@ export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
                     <div className="card-footer">
                       <Badge
                         variant={flow.estado === 'activo' ? 'green' : flow.estado === 'borrador' ? 'amber' : 'gray'}
-                        dot={flow.estado}
+                        dot={FLOW_STATES[normalizeStatus(flow.estado)]}
                       >
-                        {flow.estado}
+                        {FLOW_STATES[normalizeStatus(flow.estado)]}
                       </Badge>
                       <Badge variant="purple">{nodes[flow.id] ? fNodes.length : '—'} nodos</Badge>
                       <Badge variant="gray">v{flow.version}</Badge>
