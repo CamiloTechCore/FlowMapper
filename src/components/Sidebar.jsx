@@ -1,5 +1,6 @@
 import { GAS_URL } from '../services/config';
 import { useData } from '../context/dataStore';
+import Logo from '../assets/LOGO.png';
 
 const NAV = [
   { id: 'gallery',  icon: '🗂',  label: 'Biblioteca de Flujos' },
@@ -15,7 +16,10 @@ export default function Sidebar({ page, onNav, selectedTeam, onSelectTeam }) {
     <aside className="sidebar">
       {/* Logo */}
       <div className="sidebar-logo">
-        <div className="sidebar-logo-mark">⚡ FlowMapper</div>
+        <div className="sidebar-logo-mark">
+          <img src={Logo} alt="FlowMapper Logo" style={{ height: 24, marginRight: 8 }} />
+          FlowMapper
+        </div>
         <div className="sidebar-logo-sub">Gestión de Flujos de Trabajo</div>
       </div>
 
