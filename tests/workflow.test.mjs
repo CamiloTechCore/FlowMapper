@@ -26,6 +26,7 @@ test('si falla una edici√≥n, restaura el grafo anterior y deja intactos los dem√
     const saved = backend.request('saveFullFlow', visualGraph(team, process)).data;
     const other = backend.request('saveFullFlow', graphPayload(team, process)).data;
     const graph = fromGraph(saved); graph.nodes[1].data.titulo = 'No conservar';
+    graph.edges[0].label = 'Cambio que debe revertirse';
     backend.failNextWrite(table);
     const result = backend.request('saveFullFlow', toGraph({ ...saved.flow, nombre: 'No conservar' }, graph.nodes, graph.edges));
     assert.equal(result.success, false, table);

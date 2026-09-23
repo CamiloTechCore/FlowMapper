@@ -138,7 +138,7 @@ test('biblioteca filtra por equipo y proceso y conserva la jerarquía al recarga
 test('fallo de guardado y backend antiguo conservan el diseño en el editor', async ({ page }) => {
   const backend = createBackend(), { team } = seedHierarchy(backend);
   let old = true;
-  await mockBackend(page, backend, action => action === 'getSchemaStatus' && old ? { success: true, data: { version: '1.1.0', requiereMigracion: false } } : null);
+  await mockBackend(page, backend, action => action === 'ping' && old ? { success: true, data: { version: '1.1.0' } } : null);
   await page.goto('/equipos/' + team.id);
   await page.getByRole('button', { name: '+ Flujo', exact: true }).click();
   await page.getByLabel('Nombre del flujo', { exact: true }).fill('Conservar borrador');

@@ -1,0 +1,80 @@
+import {test,expect} from '@playwright/test';
+import {createBackend,seedHierarchy,graphPayload} from './gas-harness.mjs';
+import {mockBackend,addNode,connect} from './editor-helpers.mjs';
+
+async function openEditor(page,team) {
+  await page.goto('/equipos/'+team.id);
+  await page.getByRole('button',{name:'+ Flujo',exact:true}).click();
+}
+test('autoguarda como borrador a los 2 minutos de inactividad y mantiene un solo flujo',async({page})=>{
+  const backend=createBackend(),{team}=seedHierarchy(backend);
+  await page.clock.install();await mockBackend(page,backend);await openEditor(page,team);
+  await page.getByLabel('Nombre del flujo',{exact:true}).fill('Borrador automático');
+  await page.getByLabel('Estado del flujo').selectOption('activo');
+  await page.clock.fastForward(90000);
+  expect(backend.request('getAllFlows').data).toHaveLength(0);
+  await page.getByLabel('Título del nodo',{exact:true}).fill('Actividad reciente');
+  await page.clock.fastForward(119000);
+  expect(backend.request('getAllFlows').data).toHaveLength(0);
+  await page.clock.fastForward(2000);
+  await expect(page.locator('.wf-draft-status')).toContainText('guardado en biblioteca');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByLabel('Estado del flujo')).toHaveValue('borrador');
+  const saved=backend.request('getAllFlows').data[0];expect(saved.estado).toBe('borrador');
+  await page.getByLabel('Título del nodo',{exact:true}).fill('Versión siguiente');
+  await page.clock.fastForward(121000);
+  await expect.poll(()=>backend.request('getFullFlow',{flowId:saved.id}).data.nodes[0].titulo).toBe('Versión siguiente');
+  expect(backend.request('getAllFlows').data).toHaveLength(1);
+  await page.getByLabel('Estado del flujo').selectOption('activo');
+  await page.getByRole('button',{name:'Guardar cambios',exact:true}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(backend.request('getAllFlows').data[0].estado).toBe('activo');
+});
+test('recupera un borrador incompleto tras recargar y permite descartarlo explícitamente',async({page})=>{
+  const backend=createBackend(),{team}=seedHierarchy(backend);
+  await page.clock.install();await mockBackend(page,backend);await openEditor(page,team);
+  await page.getByRole('button',{name:'Texto flotante',exact:true}).click();
+  await page.getByLabel('Texto del comentario').fill('No perder este comentario');
+  await page.clock.fastForward(121000);
+  await expect(page.locator('.wf-draft-status')).toContainText('Borrador local');
+  expect(backend.request('getAllFlows').data).toHaveLength(0);
+  page.on('dialog',d=>d.accept());await page.reload();
+  await page.getByRole('button',{name:'+ Flujo',exact:true}).click();
+  await expect(page.getByText('Borrador recuperado de este navegador. Puedes continuar donde lo dejaste.')).toBeVisible();
+  await expect(page.locator('[data-shape="text"]')).toContainText('No perder este comentario');
+  await page.getByRole('button',{name:'Descartar borrador recuperado',exact:true}).click();
+  await expect(page.locator('.react-flow__node')).toHaveCount(1);
+  await expect(page.locator('[data-shape="text"]')).toHaveCount(0);
+});
+test('un fallo remoto conserva el borrador local y no borra el diseño al recuperarlo',async({page})=>{
+  const backend=createBackend(),{team,process}=seedHierarchy(backend);
+  const saved=backend.request('saveFullFlow',graphPayload(team,process)).data;
+  await page.clock.install();await mockBackend(page,backend,action=>action==='saveFullFlow'?{success:false,error:'Sin conexión simulada'}:null);
+  await page.goto('/flujos/'+saved.flow.id);
+  await page.getByRole('button',{name:'Editar flujo',exact:true}).click();
+  await page.getByLabel('Título del nodo',{exact:true}).fill('Cambios sin red');
+  await page.clock.fastForward(121000);
+  await expect(page.locator('.wf-draft-status')).toContainText('no confirmado');
+  expect(backend.request('getFullFlow',{flowId:saved.flow.id}).data.nodes[0].titulo).toBe('Inicio');
+  page.on('dialog',d=>d.accept());await page.reload();
+  await page.getByRole('button',{name:'Editar flujo',exact:true}).click();
+  await expect(page.getByLabel('Título del nodo',{exact:true})).toHaveValue('Cambios sin red');
+});
+test('cursor nativo al arrastrar y conexiones animadas respetan movimiento reducido',async({page})=>{
+  await page.setViewportSize({width:1500,height:1000});
+  const backend=createBackend(),{team}=seedHierarchy(backend);
+  await mockBackend(page,backend);await openEditor(page,team);
+  await addNode(page,'Actividad','Revisar');await connect(page,'Inicio','Revisar');
+  const pane=page.locator('.react-flow__pane');
+  const openCursor=await pane.evaluate(e=>getComputedStyle(e).cursor);
+  expect(openCursor).toBe('grab');
+  const rect=await pane.boundingBox();await page.mouse.move(rect.x+35,rect.y+95);await page.mouse.down();
+  const grabCursor=await pane.evaluate(e=>getComputedStyle(e).cursor);
+  expect(grabCursor).toBe('grabbing');await page.mouse.up();
+  await expect(page.locator('.electric-pulse')).toHaveCount(1);
+  await expect(page.locator('.electric-pulse')).toHaveCSS('animation-name','electric-current');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await expect(page.locator('.electric-pulse')).toHaveCSS('animation-name','none');
+  await pane.click({position:{x:35,y:95}});
+  await expect(page.getByRole('button',{name:'Copiar',exact:true})).toBeDisabled();
+});

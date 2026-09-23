@@ -33,7 +33,7 @@ test('comentarios, posición, estados y referencias persisten con Code.gs 1.3.0 
     assert.equal(nodes[1].data.titulo,'Comentario del flujo'); assert.deepEqual(nodes[1].position,{x:460,y:180});
     assert.equal(response.data.nodes[1].flowId,flow.id); assert.equal(response.data.nodes[1].tipo,'nota');
   }
-  assert.equal(backend.request('ping').data.version,'1.3.0');
+  assert.equal(backend.request('ping').data.version,'1.3.1');
   const removed=backend.request('saveFullFlow',toGraph(flow,[nodes[0]],[]));
   assert.equal(removed.data.nodes.length,1);
   assert.equal(backend.request('getFullFlow',{flowId:dest.id}).data.nodes.length,1);

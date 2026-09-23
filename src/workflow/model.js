@@ -34,7 +34,7 @@ export function connectionError(c, nodes, edges = []) {
 export function decorateEdge(edge) {
   const dashed = edge.data?.tipo === 'discontinua';
   const color = edge.data?.condicion === 'positivo' ? '#45886a' : edge.data?.condicion === 'negativo' ? '#b97580' : '#77879e';
-  return { ...edge, type: 'smoothstep', pathOptions: { borderRadius: 8, offset: 35 }, style: { stroke: color, strokeWidth: 1.6, strokeDasharray: dashed ? '6 5' : undefined }, markerEnd: { type: 'arrowclosed', color }, labelStyle: { fill: '#526177', fontSize: 12 }, labelBgStyle: { fill: '#fff' }, labelBgPadding: [6, 4] };
+  return { ...edge, type: 'electric', pathOptions: { borderRadius: 8, offset: 35 }, style: { stroke: color, strokeWidth: 1.6, strokeDasharray: dashed ? '6 5' : undefined }, markerEnd: { type: 'arrowclosed', color }, labelStyle: { fill: '#526177', fontSize: 12 }, labelBgStyle: { fill: '#fff' }, labelBgPadding: [6, 4] };
 }
 export const FLOW_STATES = { borrador: 'Borrador', activo: 'Activo', validacion: 'Validación', desactivado: 'Desactivado' };
 export const normalizeStatus = value => Object.hasOwn(FLOW_STATES, value) ? value : value === 'validación' ? 'validacion' : ['inactivo','archivado'].includes(value) ? 'desactivado' : 'borrador';

@@ -35,11 +35,13 @@ export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
     }
   };
 
-  const handleSaveFlow = async ({ flow, nodes: rawNodes, edges: rawEdges }) => {
+  const handleSaveFlow = async ({ flow, nodes: rawNodes, edges: rawEdges }, options) => {
       const result = await saveFullFlow({ flow: { ...flow, teamId: team.id }, nodes: rawNodes, edges: rawEdges });
+      if (options?.background) return result;
       toast.success('Flujo creado con ' + rawNodes.length + ' nodos ✓');
       setShowFlowModal(false);
       onOpenFlow(result.flow);
+      return result;
   };
 
   return (

@@ -153,7 +153,7 @@ test('nombres ambiguos de pestañas no se combinan ni se descartan', () => {
 test('abrir exec sin action responde ping y la migración por GET está prohibida', () => {
   const backend = createBackend();
   const result = backend.request(undefined, {}, 'GET');
-  assert.equal(result.data.pong, true); assert.equal(result.data.version, '1.3.0');
+  assert.equal(result.data.pong, true); assert.equal(result.data.version, '1.3.1');
   assert.equal(backend.request('setup', {}, 'GET').success, false);
   assert.equal(backend.request('insertRow', { sheet: 'Equipos', payload: { nombre: 'No insertar' } }, 'GET').success, false);
 });

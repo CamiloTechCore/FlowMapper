@@ -1,0 +1,14 @@
+.electric-pulse {
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-dasharray: 1 24;
+  stroke-dashoffset: 0;
+  animation: electric-current 2.4s linear infinite;
+  filter: drop-shadow(0 0 2px currentColor);
+  opacity: .9;
+  pointer-events: none;
+}
+@keyframes electric-current { to { stroke-dashoffset: -25; } }
+.wf-editor button:disabled { cursor: default; }
+.wf-draft-status { overflow-wrap: anywhere; }
+@media(prefers-reduced-motion: reduce) { .electric-pulse { animation: none; opacity: .25; filter: none; } }

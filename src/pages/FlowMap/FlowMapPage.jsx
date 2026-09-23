@@ -67,6 +67,6 @@ export default function FlowMapPage({ flow, onBack }) {
         <footer>Recorrido visual manual</footer>
       </aside>}
     </div>
-    {editing && <FlowBuilder processes={processes.filter(p => p.teamId === flow.teamId)} allFlows={flows} teamId={flow.teamId} initialGraph={{ flow, nodes, edges }} onClose={() => setEditing(false)} onSave={async payload => { await saveFullFlow(payload); setEditing(false); setActiveId(null); toast.success('Flujo actualizado en la biblioteca'); }} />}
+    {editing && <FlowBuilder processes={processes.filter(p => p.teamId === flow.teamId)} allFlows={flows} teamId={flow.teamId} initialGraph={{ flow, nodes, edges }} onClose={() => setEditing(false)} onSave={async (payload, options) => { const result = await saveFullFlow(payload); if (options?.background) return result; setEditing(false); setActiveId(null); toast.success('Flujo actualizado en la biblioteca'); return result; }} />}
   </div>;
 }

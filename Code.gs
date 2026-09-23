@@ -5,7 +5,7 @@
 // ╚══════════════════════════════════════════════════════════════╝
 
 const SPREADSHEET_ID = '12-RXAOuu_sVS479CdrhjBeKO9Tdej-93lhe6gPEnku0';
-const API_VERSION = '1.3.0';
+const API_VERSION = '1.3.1';
 
 const SHEETS = {
   TEAMS:     'equipos',
@@ -40,7 +40,7 @@ function _withWriteLock(fn) {
   lock.waitLock(30000);
   try { return fn(); }
   finally {
-    try { SpreadsheetApp.flush(); }
+    try { if (!_requestStore?.staging) SpreadsheetApp.flush(); }
     finally { lock.releaseLock(); }
   }
 }
@@ -153,6 +153,8 @@ function doGet(e)  { return _route(e, false); }
 function doPost(e) { return _route(e, true); }
 
 function _route(e = {}, allowWrites = false) {
+  // Solo dura esta petición: nunca reutilizar datos de otra ejecución/usuario.
+  _requestStore = { tables: {}, sheets: null, spreadsheet: null };
   const out = ContentService.createTextOutput().setMimeType(ContentService.MimeType.JSON);
   try {
     let p = {};
@@ -214,41 +216,110 @@ function _route(e = {}, allowWrites = false) {
 
     const fn = Object.prototype.hasOwnProperty.call(map, p.action) && map[p.action];
     if (!fn) throw new Error('Acción desconocida: ' + p.action);
-    const data = isRead ? fn() : _withWriteLock(fn);
+    const data = isRead ? fn() : _withWriteLock(() => p.action === 'setup' ? fn() : _mutateTables(fn));
     out.setContent(JSON.stringify({ success: true, data, ...(p.action === 'insertRow' ? { message: 'Registro creado con éxito' } : {}) }));
   } catch(err) {
     out.setContent(JSON.stringify({ success: false, error: err.message }));
   }
+  _requestStore = null;
   return out;
 }
 
 // ══════════════════════════════════════════════════════════════════
 //  UTILIDADES
 // ══════════════════════════════════════════════════════════════════
-const _ss    = () => SpreadsheetApp.openById(SPREADSHEET_ID);
-const _sheet = n  => { const s = _resolveSheet(_ss(), n); if(!s) throw new Error('Hoja "'+n+'" no existe. Ejecuta crearBaseDeDatos()'); return s; };
+let _requestStore = null;
+const _ss = () => _requestStore
+  ? (_requestStore.spreadsheet ||= SpreadsheetApp.openById(SPREADSHEET_ID))
+  : SpreadsheetApp.openById(SPREADSHEET_ID);
+function _sheet(name) {
+  const key = _canonicalSheet(name);
+  const sheets = _requestStore ? (_requestStore.sheets ||= _ss().getSheets()) : _ss().getSheets();
+  const matches = sheets.filter(s => s.getName().trim().toLowerCase() === key);
+  if (matches.length > 1) throw new Error('Hojas ambiguas para ' + key);
+  if (!matches.length) throw new Error('Hoja "' + name + '" no existe. Ejecuta crearBaseDeDatos()');
+  return matches[0];
+}
+
+function _table(name) {
+  const key = _canonicalSheet(name);
+  if (_requestStore && _requestStore.tables[key]) return _requestStore.tables[key];
+  const sheet = _sheet(key), original = sheet.getDataRange().getValues();
+  const columns = original[0].map(h => String(h).trim());
+  if (columns.some(h => !h) || new Set(columns).size !== columns.length) throw new Error('Cabeceras vacías o duplicadas en ' + sheet.getName());
+  const table = { sheet, columns, original, values: original.map(row => [...row]), deleted: new Set() };
+  if (_requestStore) _requestStore.tables[key] = table;
+  return table;
+}
+
+// Primero valida y prepara todos los cambios en memoria. Solo entonces escribe bloques.
+// Las filas vacías se reutilizan: borrar no desplaza fórmulas o registros de otros flujos.
+function _mutateTables(fn) {
+  _requestStore.staging = true;
+  const result = fn(), operations = [];
+  Object.entries(_requestStore.tables).forEach(([name, table]) => {
+    const { sheet, columns, original, values } = table;
+    const groups = new Map();
+    for (let row = 1; row < values.length; row++) {
+      if (columns.every((_, col) => (values[row][col] ?? '') === (original[row]?.[col] ?? ''))) continue;
+      const owned = columns.map((column, col) => table.deleted.has(row) || HEADERS[name].includes(column) ? col : -1).filter(col => col >= 0);
+      for (let i = 0; i < owned.length;) {
+        const start = owned[i]; let end = start;
+        while (++i < owned.length && owned[i] === end + 1) end = owned[i];
+        const key = start + ':' + end, blocks = groups.get(key) || [];
+        const last = blocks[blocks.length - 1];
+        if (last && last.row + last.height === row) last.height++;
+        else blocks.push({ row, height: 1, start, width: end - start + 1 });
+        groups.set(key, blocks);
+      }
+    }
+    if (!groups.size) return;
+    const range = sheet.getDataRange(), formulas = range.getFormulas ? range.getFormulas() : [];
+    if (sheet.getMaxRows && values.length > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), values.length - sheet.getMaxRows());
+    for (const blocks of groups.values()) for (const block of blocks) {
+      const { row, height, start, width } = block;
+      const read = (source, restore) => Array.from({ length: height }, (_, r) => Array.from({ length: width }, (_, c) =>
+        (restore && formulas[row + r]?.[start + c]) || (source[row + r]?.[start + c] ?? '')));
+      operations.push({ range: sheet.getRange(row + 1, start + 1, height, width), after: read(values, false), before: read(original, true) });
+    }
+  });
+  const attempted = [];
+  try {
+    for (const operation of operations) { attempted.push(operation); operation.range.setValues(operation.after); }
+    SpreadsheetApp.flush();
+  } catch (error) {
+    const failures = [];
+    for (const operation of attempted.reverse()) {
+      try { operation.range.setValues(operation.before); } catch (rollbackError) { failures.push(rollbackError.message); }
+    }
+    try { SpreadsheetApp.flush(); } catch (rollbackError) { failures.push(rollbackError.message); }
+    if (failures.length) throw new Error(error.message + '. No se pudo revertir completamente: ' + failures.join('; '));
+    throw error;
+  }
+  return result;
+}
 const _uid   = () => Utilities.getUuid();
 const _now   = () => new Date().toISOString();
 const _rObj  = (headers, row) => { const o={}; headers.forEach((h,i)=>{ o[h]=row[i]??null; }); return o; };
 
 function _rows(name) {
-  const s = _sheet(name); const d = s.getDataRange().getValues();
+  const { sheet: s, values: d, columns: h } = _table(name);
   if (d.length<=1) return [];
-  const h = _columnNames(s), key = h.indexOf(_canonicalSheet(name) === 'meta' ? 'clave' : 'id');
+  const key = h.indexOf(_canonicalSheet(name) === 'meta' ? 'clave' : 'id');
   if (key < 0) throw new Error('Falta identificador en ' + s.getName());
   return d.slice(1).filter(r=>r[key]!==''&&r[key]!=null).map(r=>_rObj(h,r));
 }
 
 function _findRow(name, id) {
-  const s = _sheet(name), v = s.getDataRange().getValues();
-  const column = _columnNames(s).indexOf(_canonicalSheet(name) === 'meta' ? 'clave' : 'id');
+  const { sheet: s, values: v, columns } = _table(name);
+  const column = columns.indexOf(_canonicalSheet(name) === 'meta' ? 'clave' : 'id');
   if (column < 0) throw new Error('Falta identificador en ' + s.getName());
   for (let i=1;i<v.length;i++) if(String(v[i][column])===String(id)) return i+1;
   return -1;
 }
 
 function _writeColumns(name) {
-  const sheet = _sheet(name), columns = _columnNames(sheet);
+  const { sheet, columns } = _table(name);
   const missing = HEADERS[_canonicalSheet(name)].filter(h => !columns.includes(h));
   if (missing.length) throw new Error('Ejecuta crearBaseDeDatos() antes de guardar: faltan ' + missing.join(', ') + ' en ' + sheet.getName());
   return { sheet, columns };
@@ -256,16 +327,26 @@ function _writeColumns(name) {
 
 // Escrituras por nombre de campo: compatibles con columnas antiguas, reordenadas o extra.
 function _appendMapped(name, row) {
-  const { sheet, columns } = _writeColumns(name);
+  const { sheet, columns } = _writeColumns(name), table = _table(name);
   const record = _rObj(HEADERS[_canonicalSheet(name)], row);
-  sheet.appendRow(columns.map(column => Object.prototype.hasOwnProperty.call(record, column) ? record[column] : ''));
+  const values = columns.map(column => Object.prototype.hasOwnProperty.call(record, column) ? record[column] : '');
+  if (!_requestStore?.staging) {
+    sheet.appendRow(values);
+    if (_requestStore) delete _requestStore.tables[_canonicalSheet(name)];
+    return;
+  }
+  const empty = table.values.findIndex((r, i) => i > 0 && columns.every((_, c) => r[c] === '' || r[c] == null));
+  if (empty > 0) table.values[empty] = values;
+  else table.values.push(values);
 }
 
 function _updateMapped(name, rowNumber, row) {
-  const { sheet, columns } = _writeColumns(name);
+  const { sheet, columns } = _writeColumns(name), table = _table(name);
   HEADERS[_canonicalSheet(name)].forEach((column, index) => {
-    sheet.getRange(rowNumber, columns.indexOf(column) + 1, 1, 1).setValues([[row[index] ?? '']]);
+    table.values[rowNumber - 1][columns.indexOf(column)] = row[index] ?? '';
+    if (!_requestStore?.staging) sheet.getRange(rowNumber, columns.indexOf(column) + 1, 1, 1).setValues([[row[index] ?? '']]);
   });
+  if (_requestStore && !_requestStore.staging) delete _requestStore.tables[_canonicalSheet(name)];
   // Las columnas adicionales (incluidas sus fórmulas) no se tocan.
 }
 
@@ -299,15 +380,14 @@ function _delete(name, id) {
     _deleteWhere('nodos', n => n.flowId === id);
   }
   if (name === 'nodos') _deleteWhere('conexiones', e => e.sourceId === id || e.targetId === id);
-  _sheet(name).deleteRow(r);
+  _deleteWhere(name, record => String(record.id) === String(id));
   return { deleted: id };
 }
 
 function _deleteWhere(name, predicate) {
-  const sheet = _sheet(name), headers = _columnNames(sheet);
-  const values = sheet.getDataRange().getValues();
+  const table = _table(name), headers = table.columns, values = table.values;
   for (let i = values.length - 1; i > 0; i--) {
-    if (predicate(_rObj(headers, values[i]))) sheet.deleteRow(i + 1);
+    if (predicate(_rObj(headers, values[i]))) { values[i] = headers.map(() => ''); table.deleted.add(i); }
   }
 }
 
@@ -437,15 +517,6 @@ function _validateAnchorCapacity(edge, existing) {
   if (existing.some(e => String(e.sourceId) === String(edge.sourceId) && String(e.targetId) === String(edge.targetId) || String(e.sourceId) === String(edge.targetId) && String(e.targetId) === String(edge.sourceId))) throw new Error('Ya existe una conexión entre estas figuras');
 }
 
-// Captura únicamente las filas del flujo editado, conservando columnas extra y fórmulas.
-function _snapshotFlowRows(name, flowId) {
-  const sheet = _sheet(name), headers = _columnNames(sheet), range = sheet.getDataRange();
-  const values = range.getValues(), formulas = range.getFormulas ? range.getFormulas() : [];
-  const key = headers.indexOf(name === 'flujos' ? 'id' : 'flowId');
-  return values.slice(1).map((row, i) => ({ row, formulas: formulas[i + 1] || [] })).filter(item => item.row[key] === flowId)
-    .map(item => headers.map((_, i) => item.formulas[i] || (item.row[i] ?? '')));
-}
-
 // Guarda bajo el bloqueo de _route. Una edición conserva el ID del flujo y de sus nodos.
 function _saveFullFlow(data) {
   const { flow, nodes, edges } = data;
@@ -470,41 +541,27 @@ function _saveFullFlow(data) {
   const old = flow.id ? _getFullFlow(flow.id) : null;
   if (old && (flow.teamId !== old.flow.teamId || flow.processId !== old.flow.processId)) throw new Error('No se puede cambiar el equipo o proceso de un flujo existente');
   if (old && flow.actualizadoEn !== old.flow.actualizadoEn) throw new Error('El flujo cambió en otra sesión. Vuelve a abrirlo antes de guardar.');
-  const backup = old ? Object.fromEntries(['flujos', 'nodos', 'conexiones'].map(name => [name, _snapshotFlowRows(name, flow.id)])) : null;
   const savedFlow = old ? old.flow : _createFlow(flow);
-  try {
-    const savedNodes = nodes.map(node => {
-      const previous = old && old.nodes.find(n => String(n.id) === String(node._tempId));
-      return previous ? _updateNode({ ...node, id: previous.id }) : _createNode({ ...node, id: undefined, flowId: savedFlow.id });
-    });
-    const ids = new Map(keys.map((key, index) => [key, savedNodes[index].id]));
-    const savedEdges = edges.map(edge => {
-      const previous = old && old.edges.find(e => String(e.id) === String(edge._tempId));
-      const sourceId = ids.get(String(edge.sourceId)), targetId = ids.get(String(edge.targetId));
-      if (!previous) return _createEdge({ ...edge, id: undefined, flowId: savedFlow.id, sourceId, targetId }, true);
-      const row = [previous.id, savedFlow.id, sourceId, targetId, edge.condicion, edge.etiqueta || '', previous.creadoEn, edge.tipo, edge.sourceHandle, edge.targetHandle];
-      _updateMapped('conexiones', _findRow('conexiones', previous.id), row);
-      return _rObj(HEADERS.conexiones, row);
-    });
-    if (old) {
-      const keepEdges = new Set(savedEdges.map(e => e.id)), keepNodes = new Set(savedNodes.map(n => n.id));
-      _deleteWhere('conexiones', e => e.flowId === flow.id && !keepEdges.has(e.id));
-      _deleteWhere('nodos', n => n.flowId === flow.id && !keepNodes.has(n.id));
-    }
-    const resultFlow = old ? _updateFlow(flow) : savedFlow;
-    return { flow: resultFlow, nodes: savedNodes, edges: savedEdges };
-  } catch (err) {
-    try {
-      if (!old) _delete('flujos', savedFlow.id);
-      else ['conexiones', 'nodos', 'flujos'].forEach(name => {
-        _deleteWhere(name, record => (name === 'flujos' ? record.id : record.flowId) === flow.id);
-        const sheet = _sheet(name);
-        backup[name].forEach(row => sheet.appendRow(row));
-      });
-    }
-    catch (cleanupError) { throw new Error(err.message + '. No se pudo revertir el flujo ' + savedFlow.id + ': ' + cleanupError.message); }
-    throw err;
+  const savedNodes = nodes.map(node => {
+    const previous = old && old.nodes.find(n => String(n.id) === String(node._tempId));
+    return previous ? _updateNode({ ...node, id: previous.id }) : _createNode({ ...node, id: undefined, flowId: savedFlow.id });
+  });
+  const ids = new Map(keys.map((key, index) => [key, savedNodes[index].id]));
+  const savedEdges = edges.map(edge => {
+    const previous = old && old.edges.find(e => String(e.id) === String(edge._tempId));
+    const sourceId = ids.get(String(edge.sourceId)), targetId = ids.get(String(edge.targetId));
+    if (!previous) return _createEdge({ ...edge, id: undefined, flowId: savedFlow.id, sourceId, targetId }, true);
+    const row = [previous.id, savedFlow.id, sourceId, targetId, edge.condicion, edge.etiqueta || '', previous.creadoEn, edge.tipo, edge.sourceHandle, edge.targetHandle];
+    _updateMapped('conexiones', _findRow('conexiones', previous.id), row);
+    return _rObj(HEADERS.conexiones, row);
+  });
+  if (old) {
+    const keepEdges = new Set(savedEdges.map(e => e.id)), keepNodes = new Set(savedNodes.map(n => n.id));
+    _deleteWhere('conexiones', e => e.flowId === flow.id && !keepEdges.has(e.id));
+    _deleteWhere('nodos', n => n.flowId === flow.id && !keepNodes.has(n.id));
   }
+  const resultFlow = old ? _updateFlow(flow) : savedFlow;
+  return { flow: resultFlow, nodes: savedNodes, edges: savedEdges };
 }
 
 // ══════════════════════════════════════════════════════════════════

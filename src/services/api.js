@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { GAS_URL as BASE_URL } from './config';
+import { createRequestStore } from './requestStore';
 
 if (!BASE_URL) {
   console.warn(
@@ -18,7 +19,7 @@ if (!BASE_URL) {
  * POST → escrituras (create*, update*, delete*, batch*)
  * Nota: GAS requiere Content-Type: text/plain para doPost
  */
-async function call(action, payload = {}) {
+async function send(action, payload = {}) {
   if (!BASE_URL) {
     throw new Error(
       'VITE_GAS_URL no configurado. Revisa tu archivo .env'
@@ -58,8 +59,23 @@ async function call(action, payload = {}) {
   return json.data;
 }
 
+const { call } = createRequestStore(send);
+let compatibility;
+function ensureCompatible() {
+  if (!compatibility) {
+    compatibility = call('ping').then(info => {
+      const [major, minor] = String(info.version || '').split('.').map(Number);
+      if (!(major > 1 || (major === 1 && minor >= 3))) {
+        throw new Error('Actualiza Code.gs a la versión 1.3.0 o posterior y publica una nueva versión de la implementación. Puedes exportar este diseño mientras tanto.');
+      }
+    }).catch(error => { compatibility = null; throw error; });
+  }
+  return compatibility;
+}
+
 // ── API pública ──────────────────────────────────────────────────
 const api = {
+  ensureCompatible,
   // Sistema
   ping:             ()               => call('ping'),
   setup:            ()               => call('setup'),

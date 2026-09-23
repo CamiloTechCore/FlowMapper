@@ -1,113 +1,172 @@
 # FlowMapper
 
-Gestión de equipos, procesos y flujos con editor visual y navegación **exclusivamente 2D**, tema blanco y recorrido por decisiones. Implementación adaptada al proyecto existente: **React 19 + Vite + React Flow + Google Apps Script**. La distribución del editor sigue la referencia de diagrams.net: paleta de formas, lienzo cuadriculado y panel de propiedades.
+FlowMapper es una aplicación web para diseñar, documentar y consultar los flujos de trabajo de una organización. Organiza la información en equipos, procesos y flujos, con un editor gráfico 2D y una biblioteca central desde la que se pueden abrir, modificar y recorrer los diagramas.
 
-## Ejecutar
+Su arquitectura combina una interfaz React con un backend en Google Apps Script y almacenamiento en Google Sheets. Está orientada a centralizar el conocimiento operativo con una infraestructura sencilla y un costo de administración reducido.
 
-Para trabajar en **VS Code**, abre `FlowMapper.code-workspace` de esta carpeta. Incluye los archivos actuales del frontend, `Code.gs`, pruebas, documentación y la configuración local `.env`.
+## Objetivo general
 
-En **Terminal → Ejecutar tarea** están disponibles las tareas `FlowMapper: iniciar aplicación`, revisión de código, pruebas de backend, pruebas de navegador y compilación. `Ctrl+Shift+B` compila a `dist/`. Con el servidor iniciado, `F5` abre Edge para depurar. Si el puerto 5173 ya está ocupado por la aplicación, usa ese servidor; la tarea evita iniciar otra instancia en un puerto distinto. La tarea `FlowMapper: verificar proyecto` ejecuta lint, pruebas de backend y build en secuencia.
+Centralizar la documentación de los procesos de los equipos mediante flujos visuales e interconectados, facilitando su creación, actualización y consulta para comprender las actividades, decisiones y relaciones que conforman la operación.
 
-El backend `Code.gs` se edita en VS Code, pero guardarlo localmente no lo despliega automáticamente en Google Apps Script. Consulta las instrucciones de actualización para publicar futuras modificaciones.
+## Objetivos específicos
 
-Desde `C:\Users\PC\Documents\Proyectos\FlowsMapper\FlowsMapper`:
+- Organizar los flujos en una biblioteca por equipo y proceso para facilitar su localización y mantenimiento.
+- Representar actividades y decisiones mediante figuras y conexiones en un lienzo 2D interactivo.
+- Permitir recorrer las rutas de un proceso y navegar hacia otros flujos relacionados.
+- Documentar actividades con descripciones, enlaces y comentarios ubicados dentro del diagrama.
+- Gestionar los estados Borrador, Activo, Validación y Desactivado desde el editor.
+- Reducir la pérdida de progreso mediante borradores locales y autoguardado por inactividad.
+- Aprovechar Google Sheets como almacenamiento central para disminuir la necesidad de contratar y administrar una base de datos dedicada, aceptando sus limitaciones de rendimiento.
 
-```powershell
+## Funcionalidades principales
+
+El editor ofrece una biblioteca de formas, cuadrícula, arrastre, zoom, minimapa y herramientas para copiar, pegar y eliminar elementos. Las figuras conectables disponen de cuatro anclajes, uno por lado, con una conexión por anclaje. Las decisiones admiten dos salidas: la primera se identifica como Sí y la siguiente como No.
+
+Cada flujo conserva sus nodos, conexiones, posiciones, comentarios y referencias a otros flujos. La biblioteca permite consultar y editar los diagramas; la vista general muestra las relaciones entre los flujos de un equipo. El recorrido permite avanzar por las actividades, elegir una rama y volver a pasos anteriores.
+
+Los borradores se conservan en el navegador. Tras dos minutos de inactividad, el editor intenta guardar los cambios pendientes como Borrador en la biblioteca si el diseño es válido y el backend está disponible. Un borrador local no equivale a una confirmación de guardado en Google Sheets.
+
+El alcance del aplicativo es diseñar, guardar y recorrer flujos. No ejecuta automáticamente las actividades representadas ni las integraciones descritas en los nodos.
+
+## Tecnologías
+
+| Tecnología | Uso en el proyecto |
+| --- | --- |
+| React 19 y React DOM | Componentes e interfaz de usuario. |
+| React Router 7 | Navegación entre biblioteca, equipos y vistas de flujos. |
+| React Flow (`@xyflow/react` 12) | Lienzo 2D, nodos, conexiones, zoom y minimapa. |
+| JavaScript, JSX y TypeScript 6 | Implementación de la aplicación y configuración del proyecto. |
+| Vite 8 | Servidor de desarrollo y compilación del frontend. |
+| CSS y SVG | Tema visual, figuras y adaptación de la interfaz. |
+| Google Apps Script | API HTTP para consultar, validar y guardar datos. |
+| Google Sheets | Almacenamiento central de equipos, procesos y diagramas. |
+| `localStorage` | Recuperación de borradores en el navegador. |
+| Node.js y npm | Instalación de dependencias y herramientas de desarrollo. |
+| Oxlint, Node Test Runner y Playwright | Revisión de código y pruebas de lógica y navegador. |
+
+## Arquitectura y almacenamiento
+
+El navegador se comunica por HTTP con la aplicación web de Apps Script. El archivo `Code.gs` procesa las solicitudes y accede a un único archivo de Google Sheets. El frontend y el backend se publican por separado.
+
+La información se distribuye en las siguientes tablas, relacionadas mediante identificadores:
+
+| Tabla | Información |
+| --- | --- |
+| `equipos` | Equipos responsables de los procesos. |
+| `procesos` | Procesos pertenecientes a cada equipo. |
+| `flujos` | Nombre, descripción, estado y pertenencia de cada flujo. |
+| `nodos` | Actividades, decisiones, comentarios, posiciones y referencias a otros flujos. |
+| `conexiones` | Origen, destino, anclajes, condiciones y etiquetas de las conexiones. |
+| `meta` | Información de configuración y versión del esquema. |
+
+El backend reconoce los nombres de las hojas sin distinguir mayúsculas y minúsculas. Los encabezados y los identificadores forman parte del contrato de datos y deben conservarse.
+
+## Instalación local
+
+### Requisitos
+
+- Node.js 22.12 o posterior y npm, compatibles con la versión de Vite del proyecto.
+- Una cuenta de Google con acceso de edición al archivo de Sheets y al proyecto de Apps Script.
+- Acceso a Internet y un navegador moderno.
+- Los archivos del proyecto, incluidos `package.json`, `package-lock.json` y `Code.gs`.
+
+### Preparar el backend
+
+Para una instalación nueva:
+
+1. Crea un archivo de Google Sheets y un proyecto de Google Apps Script.
+2. Copia el contenido de `Code.gs` al editor de Apps Script.
+3. Configura la constante `SPREADSHEET_ID` con el identificador del archivo de Sheets. Es el segmento situado entre `/d/` y `/edit` en su dirección.
+4. Ejecuta `crearBaseDeDatos()` desde Apps Script y autoriza los permisos solicitados. Esta función prepara las hojas y sus encabezados.
+5. Selecciona **Implementar → Nueva implementación → Aplicación web**.
+6. Configura la ejecución con la cuenta que tiene acceso a la hoja y publica la implementación.
+7. Conserva la URL de la aplicación web terminada en `/exec` para configurar el frontend.
+
+El cliente actual realiza solicitudes sin autenticación propia. Para que funcione con esta arquitectura, la implementación debe permitir acceso anónimo, normalmente mediante la opción **Cualquier usuario**, si la política de la cuenta lo permite. Esta configuración también permite que quien tenga la URL invoque las operaciones de lectura y escritura: los equipos de la biblioteca no constituyen permisos de acceso. Un uso con información restringida requiere incorporar autenticación y autorización antes de publicarlo. Consulta la [documentación de implementación y permisos de Apps Script](https://developers.google.com/apps-script/guides/web).
+
+Si utilizas una base y una implementación existentes, conserva su `SPREADSHEET_ID` y URL. No necesitas recrear las hojas para instalar el frontend. Para revisar la estructura sin modificarla puedes ejecutar `validarBaseDeDatos()`; ejecuta la preparación del esquema únicamente si faltan tablas o columnas necesarias.
+
+### Preparar el frontend
+
+Abre en una terminal la carpeta que contiene `package.json`. Opcionalmente, abre `FlowMapper.code-workspace` en VS Code.
+
+Instala las dependencias:
+
+```bash
 npm ci
-# Solo si todavía no tienes .env:
-Copy-Item .env.example .env
+```
+
+Crea un archivo `.env` en esa misma carpeta y agrega la URL de tu implementación:
+
+```dotenv
+VITE_GAS_URL=https://script.google.com/macros/s/TU_IMPLEMENTACION/exec
+```
+
+También se admite `VITE_API_URL` por compatibilidad; si defines ambas variables, se utiliza `VITE_GAS_URL`. Las variables `VITE_*` se incorporan al frontend y no deben contener secretos.
+
+Inicia la aplicación:
+
+```bash
 npm run dev
 ```
 
-Abre la dirección que muestra Vite (normalmente http://localhost:5173). También se admite `npm start`.
+Abre la dirección que indique Vite, normalmente `http://localhost:5173`. Reinicia el servidor si modificas `.env`.
 
-Configura la URL del WebApp en `.env`:
+### Comprobar la instalación
 
-```dotenv
-VITE_GAS_URL=https://script.google.com/macros/s/TU_ID/exec
-```
+Abre la URL `/exec?action=ping` de tu implementación. La respuesta debe ser JSON e incluir `success: true` y `data.pong: true`. Esto comprueba que el servicio responde; la lectura de la biblioteca comprueba además el acceso a los datos.
 
-Se conserva compatibilidad con **VITE_API_URL**, la variable que ya tenía este proyecto. `VITE_GAS_URL` tiene prioridad si ambas están definidas. Reinicia Vite después de cambiarla. No se utiliza `REACT_APP_GAS_URL`: esa variable correspondía al proyecto Create React App de referencia. `.env` está excluido de Git.
+Desde la aplicación, crea un equipo y un proceso de prueba, guarda un flujo y vuelve a abrirlo después de recargar la página. Comprueba que conserva sus actividades y conexiones.
 
-## Conectar Google Apps Script
+## Implementación en producción
 
-1. Abre el proyecto de Apps Script con acceso al Spreadsheet y sustituye su código por el `Code.gs` de esta carpeta. Conserva una copia de la versión desplegada si contiene otras funcionalidades.
-2. Verifica que `SPREADSHEET_ID` corresponde a la base deseada. Se conservó el ID del archivo entregado.
-3. Ejecuta `validarBaseDeDatos()` para revisar el esquema sin cambios. Después ejecuta `crearBaseDeDatos()` (también funciona el nombre anterior `setupSpreadsheet`) y autoriza el acceso. Reutiliza `Equipos`, `Procesos`, `Flujos`, `Nodos` y `Conexiones` aunque tengan mayúsculas; crea las tablas que falten y `meta`. Copia las tablas cuyo esquema cambia a pestañas `_backup_...` y añade columnas al final, sin reordenar ni borrar las celdas existentes. Las escrituras identifican los campos por sus encabezados.
-4. Implementa como aplicación web, ejecutada con la cuenta que tiene acceso a la hoja. El cliente de referencia usa peticiones anónimas: el WebApp necesita permitirlas para funcionar con este frontend. La versión actual no incluye inicio de sesión ni control de acceso propio; revisa que ese modelo sea adecuado antes de publicar datos o habilitar escrituras.
-5. Copia la URL terminada en `/exec` a `.env`. Puedes actualizar la versión de una implementación existente para conservar su URL.
-6. En **Configuración → Probar Conexión**, verifica que la respuesta contiene `data.pong: true`. Tener una URL definida no implica que el backend esté conectado.
+### Publicar el frontend
 
-**Estado de esta actualización:** el archivo local `Code.gs` es **1.3.0**. La consulta remota más reciente a `getSchemaStatus` todavía devuelve **1.1.0** (consulta del 23/09/2026: un equipo, un proceso, un flujo, nueve nodos y ocho conexiones). Debes publicar la versión nueva para guardar desde el editor. El diagnóstico de la versión antigua no conoce las columnas nuevas y por eso puede informar `requiereMigracion:false`. No se realizaron escrituras en Google Sheets desde esta tarea; las pruebas de guardado usan el `Code.gs` real con servicios GAS simulados.
+1. Configura `VITE_GAS_URL` con la implementación que utilizará el entorno de producción.
+2. Compila el proyecto:
 
-Este frontend añade la acción **`saveFullFlow`**: debes implementar el `Code.gs` actualizado, no solamente la versión original de Claude.
-
-La versión **1.3.0** mantiene `getData` e `insertRow` del script anterior, devuelve los registros creados y conserva los IDs suministrados (rechazando duplicados). `GET /exec` sin parámetros responde a `ping`; `getSchemaStatus` diagnostica la migración sin escribir. Consulta [las instrucciones de actualización](docs/ACTUALIZAR-APPS-SCRIPT.md). Las copias locales previas están en `docs/backups/`.
-
-## Uso
-
-1. **Equipos:** crea un equipo y abre su tarjeta.
-2. **Procesos:** agrega un proceso al equipo.
-3. **Biblioteca → Nuevo flujo:** selecciona el equipo y abre el constructor. Indica el proceso y el nombre.
-4. Añade figuras por clic o arrastre desde **General, Misc, Advanced, Arrows y Flowchart**. Cambia título, descripción y forma en el inspector. El texto se ajusta y la figura crece cuando lo necesita.
-5. Cada figura tiene **cuatro anclajes**: superior, derecho, inferior e izquierdo. Cada lado admite una conexión como origen o destino; se permiten **cuatro conexiones totales a figuras diferentes**, contando entradas y salidas. Conecta arrastrando o mediante **Conectar nodos**.
-6. **Arrows** permite elegir líneas continuas o discontinuas. Arrastrar el estilo al lienzo lo activa para la siguiente conexión entre anclajes. Selecciona una conexión para cambiar estilo, etiqueta y resultado **Sí / No / Siempre**. Se admiten bifurcaciones y ciclos entre figuras mientras haya lados libres.
-7. Selecciona varias figuras con **Mayús + clic** o **Mayús + arrastrar**. Usa **Ctrl/Cmd+C**, **Ctrl/Cmd+V**, **Suprimir** o **Retroceso**; también hay botones. Copiar conserva conexiones internas y pegar genera IDs nuevos. Copiar una conexión seleccionada incluye sus dos extremos. El portapapeles es interno, válido mientras la aplicación permanezca abierta. Los atajos respetan la edición de texto en campos.
-8. Desplázate por el fondo, usa zoom, minimapa, **Ordenar** y **Ver todo**. Guarda para registrar el flujo en la **biblioteca**, agrupada por equipo y filtrable por proceso.
-9. **Abrir mapa** muestra el diagrama 2D. **Recorrer** permite elegir rutas manualmente y regresar a pasos anteriores. Puede comenzar en una figura Inicio o, si no existe, en una raíz o la primera figura del diagrama.
-10. **Editar flujo** conserva el ID del flujo y de sus elementos existentes. Los grafos anteriores se adaptan visualmente a cuatro lados sin descartar conexiones. Si exceden el límite o tienen conexiones paralelas, se muestran los errores y hay que corregirlos antes de guardar.
-
-Eliminar un flujo también elimina sus nodos y conexiones. Para eliminar un proceso o equipo primero hay que quitar sus dependencias. No se permite borrar un flujo referenciado desde otro. El editor avisa antes de descartar cambios y conserva el diseño abierto si falla el guardado. **Exportar JSON** descarga una copia del diseño; no es un archivo `.drawio`.
-
-El alcance es **diseñar, guardar y recorrer** diagramas de flujo generales, según RF-CFD-001. Se retiró la biblioteca de automatizaciones tipo n8n y los puertos dinámicos. Los metadatos anteriores se conservan como referencia; no se ejecutan automatizaciones ni servicios externos.
-
-## Diseño conservado
-
-`src/index.css` se mantiene **sin modificar**. El tema blanco solicitado se aplica mediante estilos complementarios que sustituyen visualmente el fondo anterior sin editar ese archivo:
-
-- `src/styles/claude-design.css`: sistema de componentes del archivo entregado.
-- `src/styles/gallery.css`: estilos de galería extraídos del README.
-- `src/styles/integration.css`: compatibilidad con el tema claro, legibilidad, avisos y adaptación móvil.
-- `src/styles/workflow.css` y `workflow-shapes.css`: distribución del editor y mapa.
-- `src/styles/diagram.css`: biblioteca por categorías, figuras SVG y texto adaptable con cuatro anclajes.
-- `src/styles/library.css`: biblioteca con tabla por equipo.
-- `src/styles/white-theme.css`: tema blanco final, paneles del mapa y transiciones suaves; respeta la preferencia de movimiento reducido.
-
-El tema blanco se carga al final. Las fuentes de Google requieren conexión; hay fuentes de sistema como alternativa. Se retiró Three.js y no se crean escenas ni lienzos WebGL.
-
-## Estructura
-
-```text
-Code.gs                        Backend para Apps Script
-src/main.tsx                   Entrada Vite
-src/AppShell.jsx               Rutas, navegación y proveedores
-src/context/                   Estado compartido
-src/services/                  API y variables de entorno Vite
-src/components/                Constructor y mapa React Flow, sidebar y UI
-src/workflow/model.js          Figuras, cuatro anclajes, portapapeles y validación del grafo
-src/pages/                     Biblioteca, equipos, detalle, mapa y configuración
-src/index.css                  CSS original conservado
-src/styles/                    Estilos complementarios
-tests/                         Pruebas de backend y navegador
-docs/README-Claude.md          Documento de referencia original
-docs/VALIDACION.md             Hallazgos, correcciones y límites
-```
-
-Se mantuvieron JSX y JavaScript de los archivos entregados junto con la entrada TypeScript. `allowJs` permite esta integración; los JSX no cuentan con comprobación estricta de tipos. Las pruebas funcionales cubren los recorridos principales.
-
-## Verificar y compilar
-
-```powershell
-npm run lint
-npm test
-npx playwright install chromium
-npm run test:e2e
+```bash
 npm run build
-npm run preview
 ```
 
-Las pruebas E2E levantan un servidor aislado en el puerto 5174 e interceptan todas las llamadas GAS; no modifican la base real. `npm run build` crea **dist/**, no `build/`. Consulta [la validación del editor 2D](docs/EDITOR-VISUAL-2D.md) y las capturas en `docs/validation/`.
+3. Publica el contenido de `dist/` en un alojamiento de archivos estáticos con HTTPS.
+4. Configura el alojamiento para servir `index.html` cuando se solicite una ruta de la aplicación, como `/equipos/...` o `/flujos/...`. Esta reescritura permite abrir enlaces directos y recargar páginas con React Router.
+5. Comprueba el acceso a la biblioteca y la recuperación de un flujo desde la dirección publicada.
 
-Para alojamiento estático, sirve `dist/` y configura la redirección de rutas desconocidas a `index.html` para BrowserRouter. Define `VITE_GAS_URL` antes de compilar. No se ha publicado el aplicativo.
+Para revisar la compilación localmente puedes ejecutar `npm run preview`. Este comando sirve para previsualizar el resultado, no sustituye el alojamiento de producción. Si cambia la URL del backend, recompila y publica de nuevo el frontend.
 
-El respaldo de los archivos anteriores está en la carpeta hermana `respaldo-antes-integracion-20260922/`. Los archivos originales en Downloads permanecen intactos.
+### Actualizar el backend
+
+Guarda el contenido actualizado de `Code.gs` en Apps Script. En **Implementar → Administrar implementaciones**, edita la implementación existente, selecciona **Nueva versión** y pulsa **Implementar**. Así conservas su URL.
+
+Editar `Code.gs` en VS Code no actualiza por sí solo el backend publicado. Los cambios que únicamente optimizan las operaciones sobre las mismas tablas no requieren recrear la base.
+
+## Google Sheets: beneficios de centralizar la información
+
+Usar un único archivo permite mantener una fuente común para equipos, procesos y flujos. Evita dispersar diagramas entre archivos personales y facilita que la aplicación consulte información organizada con la misma estructura.
+
+Desde el punto de vista de costos, esta arquitectura evita contratar una instancia de base de datos dedicada para el alcance actual. También reduce el trabajo de instalar un motor, administrar un servidor y mantener su infraestructura. El ahorro depende del volumen de uso y de los recursos de Google que la organización ya tenga disponibles; no implica que el costo total del aplicativo sea cero. Pueden existir costos de cuenta o plan, almacenamiento, alojamiento web y mantenimiento.
+
+La información tabular facilita la inspección y exportación de los registros por parte de quienes administran la solución. El acceso directo a Sheets debe reservarse para tareas controladas, porque modificar encabezados, identificadores o relaciones puede afectar la aplicación.
+
+## Desventajas y compromiso de rendimiento
+
+**El principal compromiso es reducir infraestructura y costos a cambio de sacrificar velocidad de lectura y capacidad de concurrencia.** Abrir un flujo puede requerir esperar varios segundos mientras el navegador consulta Apps Script y este lee las tablas de Sheets.
+
+| Limitación | Efecto en el aplicativo |
+| --- | --- |
+| Latencia entre navegador, Apps Script y Sheets | Cargar, guardar o eliminar puede requerir varios segundos y variar entre solicitudes. |
+| Lectura de tablas completas en el backend actual | Aunque se solicite un solo flujo, el trabajo aumenta conforme crecen las tablas de flujos, nodos y conexiones. |
+| Escrituras protegidas por un bloqueo compartido | Varios usuarios guardando al mismo tiempo pueden generar esperas. |
+| Cuotas de Apps Script | Al alcanzar límites de ejecución o uso, las solicitudes pueden fallar. |
+| Integridad gestionada por la aplicación | Las relaciones y la recuperación ante fallos dependen del código; no hay una transacción de base de datos que abarque todas las hojas. |
+| Edición directa en Sheets | Un cambio manual puede eludir las validaciones del editor. |
+| Caché temporal en el navegador | Una consulta puede reutilizar durante unos segundos información obtenida antes de una modificación externa. |
+
+Las cuotas dependen del tipo de cuenta y pueden cambiar. La referencia aplicable es la [documentación oficial de límites de Apps Script](https://developers.google.com/apps-script/guides/services/quotas).
+
+Para reducir las esperas, el proyecto lee cada tabla una vez por solicitud, agrupa las escrituras por bloques y evita revisar todo el esquema antes de cada guardado. El frontend comparte lecturas simultáneas, utiliza una caché en memoria de 15 segundos y reutiliza la respuesta de un guardado confirmado. Las escrituras invalidan esa caché. El procesamiento por lotes sigue las [prácticas recomendadas de Google](https://developers.google.com/apps-script/guides/support/best-practices).
+
+Estas medidas reducen llamadas, pero **no garantizan que todas las operaciones terminen en menos de cinco segundos**. Ese tiempo es un objetivo que debe medirse en la implementación publicada, con el volumen real de datos y usuarios. La red, la disponibilidad de Google y las esperas por concurrencia también influyen.
+
+La arquitectura resulta adecuada cuando se priorizan una administración sencilla y un costo inicial reducido, y se toleran esperas de lectura. Si el crecimiento exige respuestas estrictamente rápidas, muchas escrituras simultáneas o controles de acceso más detallados, será necesario revisar el almacenamiento y la arquitectura del backend.
