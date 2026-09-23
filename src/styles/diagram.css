@@ -1,0 +1,17 @@
+.diagram-node { position: relative; color: #26364e; font: 13px/1.5 Inter, system-ui, sans-serif; }
+.diagram-shape { width: 100%; height: 100%; display: block; fill: #fff; stroke: #8798b0; stroke-width: 1.6px; overflow: visible; }
+.diagram-node.is-selected > .diagram-shape { stroke: #447deb; stroke-width: 2.5px; fill: #f5f9ff; }
+.diagram-copy { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; overflow-wrap: anywhere; white-space: pre-wrap; pointer-events: none; }
+.diagram-copy strong { font-size: 14px; line-height: 1.5; display: block; }
+.diagram-node .diagram-copy p { margin: 7px 0 0; font-size: 12px; line-height: 1.5; color: #526177; }
+.diagram-node .react-flow__handle { width: 10px; height: 10px; border: 2px solid white; background: #6088c7; }
+.wf-catalog details { border-bottom: 1px solid #e3e8ef; padding-bottom: 12px; }
+.wf-catalog summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+.wf-shape-library { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.wf-catalog .wf-shape-library button { flex-direction: column; gap: 4px; justify-content: center; padding: 8px 4px; font-size: 10px; }
+.wf-shape-library svg { width: 54px; height: 36px; }
+.wf-edit-tools { display: flex; gap: 6px; padding: 6px 20px; border-bottom: 1px solid #e3e8ef; background: #fafbfd; flex-wrap: wrap; }
+.wf-edit-tools small { margin: auto 0 auto auto; color: #65738a; }
+.wf-canvas:focus-visible { outline: 2px solid #447deb; outline-offset: -2px; }
+.wf-editor .wf-edit-tools button { font-size: 11px; padding: 4px 8px; }
+@media(max-width:760px) { .wf-edit-tools { padding: 5px 8px; } .wf-edit-tools small { display: none; } .wf-catalog { display: block; } }

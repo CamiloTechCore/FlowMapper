@@ -1,0 +1,210 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap, Handle, Position, useNodesState, useEdgesState, useReactFlow, useUpdateNodeInternals, useNodesInitialized } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import '../styles/workflow.css';
+import '../styles/workflow-shapes.css';
+import { CATALOG, uid, newNode, portsOf, connectionError, makeEdge, fromGraph, toGraph, validateGraph, arrangeNodes } from '../workflow/model';
+import api from '../services/api';
+
+function WorkflowNode({ id, data, selected }) {
+  const cfg = CATALOG[data.tipo] || CATALOG.paso;
+  const ports = data.metadata.ports;
+  const updateInternals = useUpdateNodeInternals();
+  const fields = data.metadata.config || {};
+  const summary = (data.tipo === 'modelo-ia' ? fields.modelo : data.tipo === 'decision' ? [fields.campo, fields.operador, fields.valor].filter(Boolean).join(' ') : '') || Object.values(fields).find(Boolean) || data.descripcion || cfg.label;
+  const shape = data.metadata.shape || (['inicio', 'fin'].includes(data.tipo) ? 'oval' : data.tipo === 'decision' ? 'diamond' : data.tipo === 'base-datos' ? 'cylinder' : 'rectangle');
+  const height = shape === 'diamond' ? 184 : 140;
+  useEffect(() => { updateInternals(id); }, [id, ports, shape, updateInternals]);
+  return <div className={`wf-node wf-shape-${shape} ${selected ? 'is-selected' : ''}`} style={{ '--node-color': cfg.color, height }}>
+    <svg className="wf-node-shape" viewBox={`0 0 220 ${height}`} preserveAspectRatio="none" aria-hidden="true">
+      {shape === 'diamond' ? <polygon points={`110,2 218,${height / 2} 110,${height - 2} 2,${height / 2}`} /> : shape === 'oval' ? <ellipse cx="110" cy={height / 2} rx="108" ry={height / 2 - 2} /> : shape === 'cylinder' ? <><path d={`M2 23 C2 -5 218 -5 218 23 V${height - 23} C218 ${height + 5} 2 ${height + 5} 2 ${height - 23} Z`} /><ellipse cx="110" cy="23" rx="108" ry="21" /></> : <rect x="2" y="2" width="216" height={height - 4} rx="10" />}
+    </svg>
+    <div className="wf-node-content">
+    <div className="wf-node-heading"><span className="wf-node-icon">{cfg.icon}</span><div><small>{cfg.label}</small><strong>{data.titulo}</strong></div></div>
+    <p>{String(summary)}</p></div>
+    {['inputs', 'outputs'].map(side => ports[side].map((port, i) => <div key={port.id}>
+      <Handle id={port.id} type={side === 'inputs' ? 'target' : 'source'} position={side === 'inputs' ? Position.Top : port.id === 'positivo' && shape === 'diamond' ? Position.Right : Position.Bottom} style={{ ...(port.id === 'positivo' && shape === 'diamond' ? { top: '50%' } : { left: shape === 'diamond' ? '50%' : `${(i + 1) / (ports[side].length + 1) * 100}%` }), background: port.kind === 'modelo' ? '#bc9aff' : cfg.color }} title={port.label} aria-label={`${side === 'inputs' ? 'Entrada' : 'Salida'} ${port.label}`} />
+      <span className={`wf-port-label ${side} ${port.id === 'positivo' && shape === 'diamond' ? 'decision-yes' : ''}`} style={port.id === 'positivo' && shape === 'diamond' ? {} : { left: shape === 'diamond' ? '50%' : `${(i + 1) / (ports[side].length + 1) * 100}%` }}>{port.label}</span>
+    </div>))}
+    {data.onAddPort && data.tipo !== 'modelo-ia' && <div className="wf-node-port-actions nodrag nopan">
+      {data.tipo !== 'inicio' && <button type="button" aria-label={`Añadir entrada a ${data.titulo}`} onClick={() => data.onAddPort(id, 'inputs')}>+ entrada</button>}
+      {!['decision', 'fin'].includes(data.tipo) && <button type="button" aria-label={`Añadir salida a ${data.titulo}`} onClick={() => data.onAddPort(id, 'outputs')}>+ salida</button>}
+    </div>}
+  </div>;
+}
+const nodeTypes = { workflow: WorkflowNode };
+const fitOptions = { padding: .12, maxZoom: 1 };
+
+function ReadCanvas({ nodes, edges, activeNodeId, onNodeClick }) {
+  const graph = useMemo(() => fromGraph({ nodes, edges }), [nodes, edges]);
+  const [measuredNodes, setMeasuredNodes, onMeasure] = useNodesState(graph.nodes);
+  useEffect(() => {
+    // Sincroniza el grafo recibido del servidor con las mediciones del lienzo.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setMeasuredNodes(graph.nodes);
+  }, [graph.nodes, setMeasuredNodes]);
+  const displayNodes = useMemo(() => measuredNodes.map(n => ({ ...n, selected: n.id === activeNodeId })), [measuredNodes, activeNodeId]);
+  const { fitView, setCenter } = useReactFlow();
+  const ready = useNodesInitialized();
+  useEffect(() => {
+    if (!activeNodeId || !ready) return;
+    const node = graph.nodes.find(n => n.id === activeNodeId);
+    if (!node) return;
+    const height = (node.data.metadata.shape || (node.data.tipo === 'decision' ? 'diamond' : '')) === 'diamond' ? 184 : 140;
+    const frame = requestAnimationFrame(() => setCenter(node.position.x + 110, node.position.y + height / 2, { zoom: 1, duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 }));
+    return () => cancelAnimationFrame(frame);
+  }, [activeNodeId, ready, graph.nodes, setCenter]);
+  return <div className="wf-canvas wf-read-canvas" aria-label="Mapa navegable del flujo"><ReactFlow nodes={displayNodes} onNodesChange={onMeasure} edges={graph.edges} nodeTypes={nodeTypes} colorMode="light" fitView fitViewOptions={fitOptions} minZoom={.1} maxZoom={2} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} onNodeClick={(_, n) => onNodeClick?.(nodes.find(item => String(item.id) === n.id))}><Background variant={BackgroundVariant.Lines} gap={20} color="#e1e6ed" /><Controls showInteractive={false} /><MiniMap pannable zoomable nodeColor="#b4c3d8" /></ReactFlow><button className="wf-fit" onClick={() => fitView({ ...fitOptions, duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450 })}>Ver todo</button></div>;
+}
+export function WorkflowMap(props) { return <ReactFlowProvider><ReadCanvas {...props} /></ReactFlowProvider>; }
+function Field({ label, value, onChange, multiline = false, ...props }) {
+  return <label className="wf-field"><span>{label}</span>{multiline
+    ? <textarea {...props} value={value || ''} onChange={e => onChange(e.target.value)} rows={3} />
+    : <input {...props} value={value || ''} onChange={e => onChange(e.target.value)} />}</label>;
+}
+
+function Editor({ processes, allFlows = [], teamId, initialGraph, onSave, onClose }) {
+  const [initial] = useState(() => fromGraph(initialGraph));
+  const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
+  const [form, setForm] = useState(initialGraph?.flow || { nombre: '', descripcion: '', processId: processes[0]?.id || '', teamId, version: '1.0' });
+  const [selectedId, setSelectedId] = useState(initial.nodes[0]?.id);
+  const [edgeId, setEdgeId] = useState(null);
+  const [connection, setConnection] = useState({ source: '', target: '', sourceHandle: '', targetHandle: '' });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [panel, setPanel] = useState('nodes');
+  const [search, setSearch] = useState('');
+  const root = useRef(null), canvas = useRef(null);
+  const { screenToFlowPosition, fitView, setCenter, getZoom } = useReactFlow();
+  const selected = nodes.find(n => n.id === selectedId);
+  const selectedEdge = edges.find(e => e.id === edgeId);
+  const validation = validateGraph(nodes, edges);
+  const requestClose = () => { if (saving) return; if (dirty) setClosing(true); else onClose(); };
+  useEffect(() => {
+    const previous = document.activeElement;
+    root.current?.focus();
+    return () => previous?.focus?.();
+  }, []);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = event => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+  function changeNode(patch) {
+    setNodes(current => current.map(n => n.id === selectedId ? { ...n, data: { ...n.data, ...patch } } : n));
+    setDirty(true);
+  }
+  function changeMeta(patch) { changeNode({ metadata: { ...selected.data.metadata, ...patch } }); }
+  const addPort = useCallback((id, side) => {
+    setNodes(current => current.map(n => {
+      if (n.id !== id) return n;
+      const ports = portsOf(n);
+      const added = { id: uid(), label: `${side === 'inputs' ? 'Entrada' : 'Salida'} ${ports[side].length + 1}`, kind: 'secuencia' };
+      return { ...n, data: { ...n.data, metadata: { ...n.data.metadata, ports: { ...ports, [side]: [...ports[side], added] } } } };
+    }));
+    setDirty(true);
+  }, [setNodes]);
+  function addNode(tipo, position) {
+    const rect = canvas.current.getBoundingClientRect();
+    const next = position || screenToFlowPosition({ x: rect.left + rect.width / 2 - 110, y: rect.top + rect.height / 2 - 80 });
+    if (!position) {
+      while (nodes.some(n => Math.abs(n.position.x - next.x) < 270 && Math.abs(n.position.y - next.y) < 230)) next.y += 260;
+    }
+    const node = newNode(tipo, next);
+    setNodes(current => [...current.map(n => ({ ...n, selected: false })), { ...node, selected: true }]);
+    setSelectedId(node.id); setEdgeId(null); setPanel('inspector'); setDirty(true);
+    if (!position) setCenter(next.x + 110, next.y + 80, { zoom: getZoom(), duration: 0 });
+  }
+  function connect(c) {
+    const error = connectionError(c, nodes, edges);
+    if (error) { setMessage(error); return; }
+    setEdges(current => [...current, makeEdge(c, nodes)]);
+    setDirty(true); setMessage('Conexión añadida.');
+  }
+  function removeNode() {
+    setNodes(current => current.filter(n => n.id !== selectedId));
+    setEdges(current => current.filter(e => e.source !== selectedId && e.target !== selectedId));
+    setSelectedId(null); setDirty(true);
+  }
+  function removePort(side, id) {
+    changeMeta({ ports: { ...portsOf(selected), [side]: portsOf(selected)[side].filter(p => p.id !== id) } });
+    setEdges(current => current.filter(e => !(side === 'inputs' ? e.target === selectedId && e.targetHandle === id : e.source === selectedId && e.sourceHandle === id)));
+  }
+  function updateList(key, index, field, value) {
+    changeMeta({ [key]: (selected.data.metadata[key] || []).map((item, i) => i === index ? { ...item, [field]: value } : item) });
+  }
+  async function save() {
+    if (!form.nombre.trim() || !form.processId) { setMessage('Escribe el nombre del flujo y selecciona un proceso.'); return; }
+    if (validation.errors.length) { setMessage(validation.errors.join(' ')); return; }
+    setSaving(true); setMessage('');
+    try {
+      const schema = await api.getSchemaStatus();
+      const [major, minor] = String(schema.version || '').split('.').map(Number);
+      if (!(major > 1 || (major === 1 && minor >= 2)) || schema.requiereMigracion) {
+        throw new Error('Actualiza Code.gs a la versión 1.2.0, ejecuta crearBaseDeDatos() y publica una nueva versión de la implementación. Puedes exportar este diseño mientras tanto.');
+      }
+      await onSave(toGraph({ ...form, teamId }, nodes, edges));
+    } catch (error) { setMessage(error.message); }
+    finally { setSaving(false); }
+  }
+  function exportDesign() {
+    const blob = new Blob([JSON.stringify({ format: 'flowmapper-visual-1', ...toGraph(form, nodes, edges) }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url; link.download = `${form.nombre || 'flujo'}.json`; link.click(); URL.revokeObjectURL(url);
+  }
+  function keyDown(event) {
+    if (event.key === 'Escape') { event.stopPropagation(); requestClose(); }
+    if (event.key !== 'Tab') return;
+    const focusable = [...root.current.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')].filter(el => el.getClientRects().length);
+    const first = focusable[0], last = focusable.at(-1);
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === root.current)) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
+  const sourceNode = nodes.find(n => n.id === connection.source), targetNode = nodes.find(n => n.id === connection.target);
+  return <div ref={root} className="wf-editor" role="dialog" aria-modal="true" aria-label="Constructor visual de flujos" tabIndex={-1} onKeyDown={keyDown}>
+    <header className="wf-toolbar"><button onClick={requestClose} disabled={saving} aria-label="Cerrar constructor">←</button><div className="wf-brand"><strong>FlowMapper <span>Studio</span></strong><small>Diseño de flujos · {nodes.length} nodos · {edges.length} conexiones</small></div><div className="wf-toolbar-actions"><button onClick={exportDesign} disabled={saving}>Exportar JSON</button><button className="wf-primary" onClick={save} disabled={saving}>{saving ? 'Guardando…' : initialGraph ? 'Guardar cambios' : 'Guardar flujo'}</button></div></header>
+    <div className="wf-flow-fields"><Field label="Nombre del flujo" value={form.nombre} placeholder="Ej: Atención de Ticket Técnico" onChange={nombre => { setForm({ ...form, nombre }); setDirty(true); }} /><label className="wf-field"><span>Proceso</span><select aria-label="Proceso" disabled={!!initialGraph} value={form.processId} onChange={e => { setForm({ ...form, processId: e.target.value }); setDirty(true); }}>{processes.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></label><Field label="Descripción del flujo" value={form.descripcion} onChange={descripcion => { setForm({ ...form, descripcion }); setDirty(true); }} /></div>
+    {message && <div className="wf-message" role="status"><span>{message}</span><button onClick={() => setMessage('')} aria-label="Ocultar mensaje">×</button></div>}
+    {closing && <div className="wf-message" role="alert"><span>Hay cambios sin guardar.</span><button onClick={() => setClosing(false)}>Seguir editando</button><button onClick={onClose}>Descartar y cerrar</button></div>}
+    <nav className="wf-mobile-tabs" aria-label="Paneles del constructor">{[['nodes', 'Nodos'], ['canvas', 'Lienzo'], ['inspector', 'Configurar']].map(([id, label]) => <button key={id} className={panel === id ? 'active' : ''} onClick={() => setPanel(id)}>{label}</button>)}</nav>
+    <div className={`wf-workspace show-${panel}`}>
+      <aside className="wf-palette"><h2>Añadir nodo</h2><p>Arrastra al lienzo o pulsa un bloque.</p><input aria-label="Buscar tipo de nodo" placeholder="Buscar nodo…" value={search} onChange={e => setSearch(e.target.value)} /><div className="wf-catalog">{Object.entries(CATALOG).filter(([, cfg]) => cfg.label.toLowerCase().includes(search.toLowerCase())).map(([tipo, cfg]) => <button key={tipo} draggable onDragStart={e => { e.dataTransfer.setData('application/flowmapper', tipo); e.dataTransfer.effectAllowed = 'move'; }} onClick={() => addNode(tipo)} aria-label={`Añadir ${cfg.label}`}><span style={{ color: cfg.color }}>{cfg.icon}</span><div><strong>{cfg.label}</strong><small>{cfg.title}</small></div><b>+</b></button>)}</div><div className="wf-legend"><span>──▶ Secuencia de datos</span><span className="wf-model-color">┄┄ Modelo de IA</span><p>Un puerto puede conectar varias ramas. Los retornos permiten ciclos.</p></div></aside>
+      <main className="wf-canvas" ref={canvas} onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }} onDrop={e => { e.preventDefault(); const tipo = e.dataTransfer.getData('application/flowmapper'); if (CATALOG[tipo]) addNode(tipo, screenToFlowPosition({ x: e.clientX, y: e.clientY })); }}>
+        <ReactFlow nodes={nodes.map(n => ({ ...n, data: { ...n.data, metadata: { ...n.data.metadata, ports: portsOf(n) }, onAddPort: addPort } }))} edges={edges} nodeTypes={nodeTypes} colorMode="light" fitView fitViewOptions={fitOptions} minZoom={.15} maxZoom={2} snapToGrid snapGrid={[20, 20]} deleteKeyCode={null} onNodesChange={changes => { onNodesChange(changes); if (changes.some(c => c.type === 'position' && c.dragging)) setDirty(true); }} onEdgesChange={onEdgesChange} onConnect={connect} isValidConnection={c => !connectionError(c, nodes, edges)} onNodeClick={(_, n) => { setSelectedId(n.id); setEdgeId(null); setPanel('inspector'); }} onEdgeClick={(_, edge) => { setEdgeId(edge.id); setSelectedId(null); setPanel('inspector'); }} onPaneClick={() => { setSelectedId(null); setEdgeId(null); }}>
+          <Background variant={BackgroundVariant.Lines} gap={20} size={1} color="#e1e6ed" /><Controls /><MiniMap pannable zoomable nodeColor={n => CATALOG[n.data.tipo]?.color || '#aaa'} maskColor="rgba(255,255,255,.75)" />
+        </ReactFlow><div className="wf-canvas-caption">Arrastra el fondo · Conecta los puertos</div><div className="wf-fit"><button onClick={() => { setNodes(arrangeNodes(nodes, edges)); setDirty(true); }}>Ordenar</button><button onClick={() => fitView({ ...fitOptions, duration: 250 })}>Ver todo</button></div>
+      </main>
+      <aside className="wf-inspector">
+        {selected ? <>
+          <h2>{CATALOG[selected.data.tipo]?.icon} Configurar nodo</h2><p>{CATALOG[selected.data.tipo]?.label}</p>
+          <Field label="Título del nodo" value={selected.data.titulo} onChange={titulo => changeNode({ titulo })} /><Field label="Descripción del nodo" value={selected.data.descripcion} onChange={descripcion => changeNode({ descripcion })} multiline />
+          <label className="wf-field"><span>Forma</span><select value={selected.data.metadata.shape || (['inicio', 'fin'].includes(selected.data.tipo) ? 'oval' : selected.data.tipo === 'decision' ? 'diamond' : selected.data.tipo === 'base-datos' ? 'cylinder' : 'rectangle')} onChange={e => changeMeta({ shape: e.target.value })}><option value="rectangle">Actividad · rectángulo</option><option value="oval">Inicio / fin · óvalo</option><option value="diamond">Decisión · rombo</option><option value="cylinder">Datos · cilindro</option></select></label>
+          {(CATALOG[selected.data.tipo]?.fields || []).map(([key, label]) => <Field key={key} label={label} value={selected.data.metadata.config?.[key]} multiline={['prompt', 'expresion', 'consulta', 'cuerpo', 'plantilla'].includes(key)} onChange={value => changeMeta({ config: { ...selected.data.metadata.config, [key]: value } })} />)}
+          {selected.data.tipo === 'decision' && <p className="wf-tip">Describe la regla y conecta las salidas Sí y No. Al recorrer el flujo eliges la rama manualmente.</p>}{selected.data.tipo === 'ia' && <p className="wf-tip">Conecta un nodo Modelo de IA al puerto «Modelo IA».</p>}
+          {selected.data.tipo === 'flujo-externo' && <label className="wf-field"><span>Flujo de destino</span><select value={selected.data.refFlowId || ''} onChange={e => changeNode({ refFlowId: e.target.value })}><option value="">Seleccionar…</option>{allFlows.filter(f => f.id !== form.id).map(f => <option key={f.id} value={f.id}>{f.nombre}</option>)}</select></label>}
+          {['parameters', ...(selected.data.tipo === 'notificacion' || selected.data.tipo === 'integracion' ? ['attachments'] : [])].map(key => <section key={key} className="wf-config-section"><h3>{key === 'parameters' ? 'Parámetros' : 'Adjuntos (referencias)'}</h3>{(selected.data.metadata[key] || []).map((item, i) => <div className="wf-key-value" key={item.id}><Field label={`${key === 'parameters' ? 'Nombre' : 'Archivo'} ${i + 1}`} value={item.name} onChange={v => updateList(key, i, 'name', v)} /><Field label={`Valor ${i + 1}`} value={item.value} onChange={v => updateList(key, i, 'value', v)} /><button aria-label={`Quitar ${key} ${i + 1}`} onClick={() => changeMeta({ [key]: selected.data.metadata[key].filter((_, j) => j !== i) })}>×</button></div>)}<button onClick={() => changeMeta({ [key]: [...(selected.data.metadata[key] || []), { id: uid(), name: '', value: '' }] })}>+ {key === 'parameters' ? 'Parámetro' : 'Adjunto'}</button></section>)}
+          <section className="wf-config-section"><h3>Puertos</h3>{['inputs', 'outputs'].map(side => <div key={side}>{portsOf(selected)[side].map(port => <div className="wf-port-row" key={port.id}><Field label={`${side === 'inputs' ? 'Entrada' : 'Salida'}: ${port.id === 'positivo' ? 'Sí' : port.id === 'negativo' ? 'No' : port.kind === 'modelo' ? 'Modelo' : 'Datos'}`} value={port.label} onChange={label => changeMeta({ ports: { ...portsOf(selected), [side]: portsOf(selected)[side].map(p => p.id === port.id ? { ...p, label } : p) } })} />{!['in', 'out', 'positivo', 'negativo', 'model-in', 'model-out'].includes(port.id) && <button aria-label={`Eliminar puerto ${port.label}`} onClick={() => removePort(side, port.id)}>×</button>}</div>)}</div>)}</section>
+          <button className="wf-danger" onClick={removeNode}>Eliminar nodo</button>
+        </> : selectedEdge ? <><h2>Conexión</h2><p>{selectedEdge.data.tipo === 'modelo' ? 'Dependencia de modelo · línea discontinua' : 'Secuencia · línea continua'}</p><Field label="Etiqueta de conexión" value={selectedEdge.label} onChange={label => { setEdges(current => current.map(e => e.id === edgeId ? { ...e, label } : e)); setDirty(true); }} /><button className="wf-danger" onClick={() => { setEdges(current => current.filter(e => e.id !== edgeId)); setEdgeId(null); setDirty(true); }}>Eliminar conexión</button></> : <><h2>Tu flujo, paso a paso</h2><p>Selecciona un nodo para configurar sus detalles o una conexión para cambiar su etiqueta.</p></>}
+        <section className="wf-config-section"><h3>Conectar nodos</h3><p>También puedes unirlos aquí, sin arrastrar.</p>
+          <label className="wf-field"><span>Nodo de origen</span><select value={connection.source} onChange={e => setConnection({ ...connection, source: e.target.value, sourceHandle: portsOf(nodes.find(n => n.id === e.target.value)).outputs[0]?.id || '' })}><option value="" disabled>Seleccionar…</option>{nodes.filter(n => portsOf(n).outputs.length).map(n => <option key={n.id} value={n.id}>{n.data.titulo}</option>)}</select></label>
+          <label className="wf-field"><span>Puerto de salida</span><select value={connection.sourceHandle} onChange={e => setConnection({ ...connection, sourceHandle: e.target.value })}><option value="" disabled>Seleccionar…</option>{sourceNode && portsOf(sourceNode).outputs.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
+          <label className="wf-field"><span>Nodo de destino</span><select value={connection.target} onChange={e => setConnection({ ...connection, target: e.target.value, targetHandle: portsOf(nodes.find(n => n.id === e.target.value)).inputs[0]?.id || '' })}><option value="" disabled>Seleccionar…</option>{nodes.filter(n => portsOf(n).inputs.length).map(n => <option key={n.id} value={n.id}>{n.data.titulo}</option>)}</select></label>
+          <label className="wf-field"><span>Puerto de entrada</span><select value={connection.targetHandle} onChange={e => setConnection({ ...connection, targetHandle: e.target.value })}><option value="" disabled>Seleccionar…</option>{targetNode && portsOf(targetNode).inputs.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
+          <button onClick={() => connect(connection)}>Añadir conexión</button>
+        </section>
+        <section className="wf-config-section"><h3>Validación</h3>{!validation.errors.length && !validation.warnings.length && <p className="wf-valid">✓ Estructura válida</p>}{validation.errors.map(error => <p className="wf-error" key={error}>{error}</p>)}{validation.warnings.map(warning => <p className="wf-warning" key={warning}>{warning}</p>)}</section>
+      </aside>
+    </div>
+    <footer className="wf-footer"><span>Diseño y recorrido manual · Las integraciones se guardan como configuración</span><span>{dirty ? 'Cambios sin guardar' : 'Listo para editar'}</span></footer>
+    {saving && <div className="wf-saving" role="status">Guardando el flujo…</div>}
+  </div>;
+}
+export default function FlowBuilder(props) {
+  return createPortal(<ReactFlowProvider><Editor {...props} /></ReactFlowProvider>, document.body);
+}

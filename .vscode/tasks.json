@@ -1,0 +1,52 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "FlowMapper: iniciar aplicación",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "dev", "--", "--host", "127.0.0.1", "--port", "5173", "--strictPort"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "runOptions": { "instanceLimit": 1 }
+    },
+    {
+      "label": "FlowMapper: revisar código",
+      "type": "npm",
+      "script": "lint",
+      "problemMatcher": []
+    },
+    {
+      "label": "FlowMapper: probar backend y migración",
+      "type": "npm",
+      "script": "test",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "FlowMapper: probar navegador",
+      "type": "npm",
+      "script": "test:e2e",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "FlowMapper: compilar producción",
+      "type": "npm",
+      "script": "build",
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "FlowMapper: verificar proyecto",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "FlowMapper: revisar código",
+        "FlowMapper: probar backend y migración",
+        "FlowMapper: compilar producción"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

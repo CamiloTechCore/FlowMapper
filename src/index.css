@@ -1,0 +1,250 @@
+/* src/index.css */
+
+/* ════════════════════════════════════════════════════════════
+   FlowMapper — Design System  (Glassmorphism iOS 26)
+   ════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;600;700;800;900&display=swap');
+
+/* ── Tokens ──────────────────────────────────────────────── */
+:root {
+  /* Background layers */
+  --bg-void:   #04040a;
+  --bg-deep:   #07071a;
+  --bg-mid:    #0d0d22;
+
+  /* Purple spectrum */
+  --p-900: #1a0a2e;
+  --p-800: #2d1b69;
+  --p-700: #5b21b6;
+  --p-600: #7c3aed;
+  --p-400: #a78bfa;
+  --p-300: #c084fc;
+  --p-200: #ddd6fe;
+
+  /* Accent */
+  --cyan:  #67e8f9;
+  --cyan2: #a5f3fc;
+  --green: #4ade80;
+  --pink:  #f472b6;
+  --amber: #facc15;
+  --red:   #f87171;
+
+  /* Glass surfaces */
+  --glass-xs:     rgba(255,255,255,0.03);
+  --glass-sm:     rgba(255,255,255,0.05);
+  --glass-md:     rgba(255,255,255,0.07);
+  --glass-lg:     rgba(255,255,255,0.10);
+  --glass-border: rgba(255,255,255,0.08);
+  --glass-border-accent: rgba(192,132,252,0.25);
+
+  /* Text */
+  --text-1: rgba(255,255,255,0.95);
+  --text-2: rgba(255,255,255,0.60);
+  --text-3: rgba(255,255,255,0.35);
+  --text-4: rgba(255,255,255,0.18);
+
+  /* Shadows */
+  --shadow-sm:  0 4px 16px rgba(0,0,0,0.4);
+  --shadow-md:  0 8px 32px rgba(0,0,0,0.55);
+  --shadow-lg:  0 16px 64px rgba(0,0,0,0.7);
+  --shadow-xl:  0 24px 96px rgba(0,0,0,0.8);
+  --glow-p:     0 0 40px rgba(192,132,252,0.18);
+  --glow-c:     0 0 40px rgba(103,232,249,0.15);
+
+  /* Radii */
+  --r-xs:  8px;
+  --r-sm:  12px;
+  --r-md:  16px;
+  --r-lg:  24px;
+  --r-xl:  32px;
+  --r-2xl: 40px;
+
+  /* Fonts */
+  --font-ui:      'Inter', system-ui, sans-serif;
+  --font-display: 'Outfit', system-ui, sans-serif;
+
+  /* Transitions */
+  --ease-out:    cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Reset ───────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar          { width: 4px; height: 4px; }
+::-webkit-scrollbar-track    { background: transparent; }
+::-webkit-scrollbar-thumb    { background: rgba(192,132,252,0.25); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(192,132,252,0.5); }
+
+/* ════════════════════════════════════════════════════════════
+   GLASS SURFACES & LAYOUT
+   ════════════════════════════════════════════════════════════ */
+.glass-card {
+  background: linear-gradient(135deg, var(--glass-sm) 0%, var(--glass-xs) 100%);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--glass-border);
+  border-top-color: rgba(255,255,255,0.12);
+  border-left-color: rgba(255,255,255,0.09);
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255,255,255,0.07);
+  transition: all 0.25s var(--ease-out);
+}
+.glass-card:hover {
+  background: linear-gradient(135deg, var(--glass-md) 0%, var(--glass-sm) 100%);
+  border-color: var(--glass-border-accent);
+  transform: translateY(-2px);
+}
+
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-label { font-size: 11px; font-weight: 700; color: #555; letter-spacing: 0.6px; text-transform: uppercase; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+.card { border-radius: var(--r-lg); padding: 20px; position: relative; overflow: hidden; }
+.card-icon {
+  width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; background: rgba(0,0,0,0.05);
+  border: 1px solid rgba(0,0,0,0.1);
+}
+.card-title  { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
+.card-desc   { font-size: 13px; color: #444; line-height: 1.5; margin-top: 4px; }
+
+.badge {
+  font-size: 11px; font-weight: 600; padding: 3px 10px;
+  border-radius: 20px; display: inline-flex; align-items: center; gap: 5px;
+}
+.badge-purple { background: rgba(192,132,252,0.14); color: var(--p-700); border: 1px solid rgba(192,132,252,0.4); }
+
+.flex { display: flex; }
+.flex-col { display: flex; flex-direction: column; }
+.gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
+.mt-2 { margin-top: 8px; }
+.mt-4 { margin-top: 16px; }
+
+.spinner {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid rgba(192,132,252,0.2);
+  border-top-color: var(--p-600);
+  display: inline-block; animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ════════════════════════════════════════════════════════════
+   TUS AJUSTES DE COLORES PERSONALIZADOS (MODO CLARO iOS)
+   ════════════════════════════════════════════════════════════ */
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color-scheme: dark;
+  background-color: #000000;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  /* Fondo moderno con gradientes para resaltar el efecto de vidrio */
+  background: radial-gradient(circle at 15% 50%, #fcfeff, transparent 60%),
+              radial-gradient(circle at 85% 30%, #f4f3f7, transparent 50%),
+              #0c0c0c;
+  color: #020202;
+  overflow-x: hidden;
+  font-family: var(--font-ui);
+}
+
+/* Efecto de Vidrio Líquido (iOS 26 Style) */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  padding: 24px;
+}
+
+/* Estilos básicos para la navegación */
+nav {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 30px;
+}
+
+nav a {
+  color: #000000;
+  text-decoration: none;
+  font-weight: 600;
+  font-family: var(--font-display);
+  padding: 8px 16px;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  display: center;
+}
+
+nav a:hover {
+  background: rgba(192, 132, 252, 0.2);
+}
+
+/* Estilos de Vidrio para Formularios */
+.glass-input {
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 15px;
+  background: rgba(255, 255, 255, 0.123);
+  border: 1px solid rgba(255, 255, 255, 0.349);
+  border-radius: 10px;
+  color: #000000;
+  font-family: inherit;
+  box-sizing: border-box;
+  transition: all 0.3s ease;
+}
+
+.glass-input:focus {
+  outline: none;
+  border-color: #000000;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.glass-button {
+  width: 100%;
+  padding: 12px;
+  background: rgba(255, 254, 255, 0.3);
+  border: 1px solid rgba(253, 253, 253, 0.5);
+  border-radius: 12px;
+  color: #000000;
+  font-weight: bold;
+  font-family: var(--font-display);
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.glass-button:hover {
+  background: rgba(59, 60, 61, 0.5);
+  color: #ffffff;
+}
+
+.glass-button:disabled {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.5);
+  cursor: not-allowed;
+}
+
+.grid-2-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+::placeholder {
+  color: #030303ce;
+}

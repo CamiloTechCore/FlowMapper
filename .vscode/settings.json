@@ -1,0 +1,11 @@
+{
+  "files.associations": {
+    "*.gs": "javascript"
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/test-results": true,
+    "**/playwright-report": true
+  }
+}

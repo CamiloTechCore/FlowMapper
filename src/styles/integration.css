@@ -1,0 +1,67 @@
+/* Completa las clases de Claude y respeta el fondo y vidrio de src/index.css. */
+:root {
+  color-scheme: light;
+  --text-1: #181424;
+  --text-2: #494454;
+  --text-3: #645e70;
+  --text-4: #777180;
+  --shadow-sm: 0 4px 16px rgba(30,20,50,.08);
+  --shadow-md: 0 8px 32px rgba(30,20,50,.1);
+  --shadow-lg: 0 16px 64px rgba(30,20,50,.14);
+  --p-300: #7939b6;
+  --cyan: #087a8f;
+  --cyan2: #087a8f;
+  --green: #197448;
+  --amber: #886500;
+  --red: #b53245;
+}
+.app-shell { height: 100dvh; }
+.route-content { flex: 1; min-height: 0; overflow: hidden; }
+.main-area { background: rgba(255,255,255,.28); }
+.sidebar { background: rgba(255,255,255,.42); box-shadow: var(--shadow-sm); }
+.sidebar-logo-mark { background: linear-gradient(135deg,#7939b6,#087a8f); background-clip: text; }
+.sidebar-nav { margin: 0; }
+.nav-item { background: transparent; font-family: inherit; text-align: left; width: 100%; }
+.glass-heavy { background: rgba(250,249,255,.96); border-color: rgba(80,60,120,.15); }
+.form-input,.form-select,.form-textarea { color: var(--text-1); background: rgba(255,255,255,.55); border-color: rgba(80,60,120,.18); }
+.form-select option { color: #181424; background: #faf9ff; }
+.btn-secondary,.btn-icon { color: var(--text-1); background: rgba(255,255,255,.5); border-color: rgba(80,60,120,.16); }
+.badge-cyan { color: var(--cyan); }
+.canvas-wrap,.gallery-preview { background: #07071a; }
+.connection-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 24px; background: #fff1d6; color: #604814; font-size: 13px; flex-shrink: 0; }
+.connection-notice span { flex: 1; min-width: 200px; }
+.topbar { gap: 12px; }
+.page-content,.route-content > div { min-height: 0; }
+.page-content > * { flex-shrink: 0; }
+.modal { max-height: 90dvh; overflow: hidden; display: flex; flex-direction: column; }
+.modal-header,.modal-footer { flex-shrink: 0; }
+.modal > :not(.modal-header):not(.modal-footer) { min-height: 0; overflow-y: auto; }
+.loading-screen { background: rgba(250,249,255,.96); }
+.walk-progress { background: rgba(250,249,255,.92); }
+.canvas-hint { color: rgba(255,255,255,.75); }
+button:focus-visible,a:focus-visible,[tabindex]:focus-visible { outline: 2px solid var(--p-600); outline-offset: 3px; }
+.flow-gallery { grid-template-columns: repeat(auto-fill,minmax(min(300px,100%),1fr)); }
+.topbar-actions { flex-wrap: wrap; }
+.team-content { display: flex; flex-direction: row; gap: 24px; align-items: flex-start; }
+@media (max-width: 1000px) {
+  .sidebar { width: 210px; min-width: 210px; }
+  .topbar { height: auto; min-height: 62px; padding: 12px 18px; flex-wrap: wrap; }
+  .grid-3,.grid-2 { grid-template-columns: 1fr; }
+  .team-content { flex-direction: column; }
+  .team-content > div { width: 100% !important; }
+}
+@media (max-width: 640px) {
+  .app-shell { flex-direction: column; }
+  .sidebar { width: 100%; min-width: 0; height: auto; flex-shrink: 0; }
+  .sidebar-logo { padding: 10px 16px; }
+  .sidebar-logo-sub,.sidebar-footer,.sidebar-section-label,.sidebar-nav .nav-sub { display: none; }
+  .sidebar-nav { flex-direction: row; padding: 6px; flex: none; }
+  .sidebar-nav .nav-item { width: auto; flex: 1; min-width: 0; justify-content: center; padding: 8px 5px; font-size: 11px; gap: 4px; }
+  .sidebar-nav .nav-item:nth-of-type(n+4) { display: none; }
+  .page-content { padding: 16px; }
+  .topbar-actions { width: 100%; }
+  .topbar-actions input,.topbar-actions select { width: 100% !important; flex: 1; min-width: 130px; }
+  .form-row { grid-template-columns: 1fr; }
+  .modal { padding: 18px; }
+  .stat-grid { grid-template-columns: repeat(2,1fr); }
+}

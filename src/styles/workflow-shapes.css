@@ -1,0 +1,14 @@
+.wf-node { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.wf-node-shape { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; filter: drop-shadow(0 7px 12px #0004); }
+.wf-node-shape > * { fill: #202a3a; stroke: var(--node-color); stroke-width: 1.6; }
+.wf-node.is-selected { outline: none; }.wf-node.is-selected .wf-node-shape { filter: drop-shadow(0 0 8px color-mix(in srgb, var(--node-color) 55%, transparent)); }.wf-node.is-selected .wf-node-shape > * { stroke-width: 3; fill: #2d3850; }
+.wf-node-content { position: absolute; inset: 20px 18px; display: flex; flex-direction: column; justify-content: center; pointer-events: none; }
+.wf-node .wf-node-content p { margin: 8px 0 0; font: 10px/1.3 Inter, system-ui, sans-serif; color: #c4cde0; }
+.wf-node .wf-node-content strong { color: #eef3fc; max-width: 140px; }.wf-node .wf-node-content small { color: #b4c1d7; }
+.wf-shape-diamond .wf-node-content { inset: 45px 45px; text-align: center; }.wf-shape-diamond .wf-node-heading { flex-direction: column; gap: 1px; }.wf-shape-diamond .wf-node-icon { display: none; }.wf-shape-diamond .wf-node-content strong { max-width: 130px; white-space: normal; overflow-wrap: anywhere; }.wf-shape-diamond .wf-node-content p { max-height: 24px; }.wf-shape-diamond .wf-node-port-actions { left: 56px; right: 56px; bottom: 33px; }
+.wf-shape-oval .wf-node-content { inset: 22px 28px; }.wf-shape-oval .wf-node-content strong { max-width: 123px; }.wf-shape-oval .wf-node-port-actions { left: 44px; right: 44px; bottom: 18px; }.wf-shape-cylinder .wf-node-content { inset: 40px 18px 18px; }.wf-shape-cylinder .wf-node-port-actions { bottom: 18px; left: 22px; right: 22px; }
+.wf-port-label { max-width: 100px; transform: translateX(-50%); background: #10151fe8; border-radius: 3px; padding: 0 3px; pointer-events: none; }
+.wf-port-label.inputs { top: -22px; right: auto; }.wf-port-label.outputs { top: auto; bottom: -22px; right: auto; }.wf-port-label.decision-yes { top: 50%; right: -35px; left: auto; bottom: auto; transform: translateY(-50%); }
+.wf-node .react-flow__handle-top { top: 0; }.wf-node .react-flow__handle-bottom { bottom: 0; }.wf-node .react-flow__handle-right { right: 0; }
+.wf-fit { display: flex; gap: 6px; }.wf-read-canvas { position: absolute; inset: 0; font-family: Inter, system-ui, sans-serif; }.wf-read-canvas > .wf-fit { background: #263044; color: #ecf1fb; border: 1px solid #536079; padding: 7px 12px; border-radius: 7px; cursor: pointer; }.wf-read-canvas .react-flow__minimap { bottom: auto; top: 44px; }
+.wf-read-canvas .wf-node { cursor: pointer; }
