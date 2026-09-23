@@ -5,7 +5,7 @@
 // ╚══════════════════════════════════════════════════════════════╝
 
 const SPREADSHEET_ID = '12-RXAOuu_sVS479CdrhjBeKO9Tdej-93lhe6gPEnku0';
-const API_VERSION = '1.2.0';
+const API_VERSION = '1.3.0';
 
 const SHEETS = {
   TEAMS:     'equipos',
@@ -406,40 +406,35 @@ function _updateNode(d) {
 // ══════════════════════════════════════════════════════════════════
 //  CRUD CONEXIONES
 // ══════════════════════════════════════════════════════════════════
-function _createEdge(d) {
+function _createEdge(d, validatedGraph) {
   _requireRecord('flujos', d.flowId);
   const source = _requireRecord('nodos', d.sourceId), target = _requireRecord('nodos', d.targetId);
   if (source.flowId !== d.flowId || target.flowId !== d.flowId) throw new Error('Los nodos deben pertenecer al mismo flujo');
   const id=_newId('conexiones', d), ts=_now();
   const normalized = _validateConnection(d, source, target);
+  if (validatedGraph !== true) _validateAnchorCapacity({ ...d, ...normalized }, _rows('conexiones').filter(e => e.flowId === d.flowId));
   const row=[id, d.flowId, d.sourceId, d.targetId, normalized.condicion, d.etiqueta||'', d.creadoEn||ts, normalized.tipo, normalized.sourceHandle, normalized.targetHandle];
   _appendMapped('conexiones', row);
   return _rObj(HEADERS.conexiones, row);
 }
 
-function _nodePorts(node) {
-  const meta = _parseMeta({ metadata: node.metadata }).metadata || {};
-  if (meta.ports) return meta.ports;
-  if (node.tipo === 'modelo-ia') return { inputs: [], outputs: [{ id: 'model-out', kind: 'modelo' }] };
-  return {
-    inputs: node.tipo === 'inicio' ? [] : [{ id: 'in', kind: 'secuencia' }].concat(node.tipo === 'ia' ? [{ id: 'model-in', kind: 'modelo' }] : []),
-    outputs: node.tipo === 'fin' ? [] : node.tipo === 'decision' ? [{ id: 'positivo', kind: 'secuencia' }, { id: 'negativo', kind: 'secuencia' }] : [{ id: 'out', kind: 'secuencia' }],
-  };
-}
-
+// RF-CFD-001: los cuatro lados sirven como origen y destino, uno por conexión.
 function _validateConnection(edge, source, target) {
-  const tipo = edge.tipo || 'secuencia';
-  if (!['secuencia', 'modelo'].includes(tipo)) throw new Error('Tipo de conexión inválido');
-  const sourceHandle = edge.sourceHandle || (tipo === 'modelo' ? 'model-out' : source.tipo === 'decision' ? edge.condicion : 'out');
-  const targetHandle = edge.targetHandle || (tipo === 'modelo' ? 'model-in' : 'in');
-  const output = _nodePorts(source).outputs.find(p => p.id === sourceHandle);
-  const input = _nodePorts(target).inputs.find(p => p.id === targetHandle);
-  if (!output || !input || output.kind !== tipo || input.kind !== tipo) throw new Error('Puertos incompatibles o inexistentes');
-  if (tipo === 'modelo' && (source.tipo !== 'modelo-ia' || target.tipo !== 'ia')) throw new Error('Una dependencia conecta un modelo con un nodo de IA');
-  if (tipo === 'secuencia' && (source.tipo === 'modelo-ia' || target.tipo === 'modelo-ia' || source.tipo === 'fin' || target.tipo === 'inicio')) throw new Error('Conexión secuencial inválida');
-  const condicion = source.tipo === 'decision' ? sourceHandle : 'siempre';
-  if (!['siempre', 'positivo', 'negativo'].includes(condicion) || (edge.condicion && edge.condicion !== condicion)) throw new Error('Condición inválida para el puerto de salida');
-  return { tipo, sourceHandle, targetHandle, condicion };
+  if (!source || !target || String(edge.sourceId) === String(edge.targetId)) throw new Error('Conecta figuras diferentes');
+  const tipo = edge.tipo || 'secuencia', condicion = edge.condicion || 'siempre';
+  const anchors = ['top', 'right', 'bottom', 'left'];
+  if (!['secuencia', 'discontinua'].includes(tipo)) throw new Error('Tipo de conexión inválido');
+  if (!anchors.includes(edge.sourceHandle) || !anchors.includes(edge.targetHandle)) throw new Error('Anclajes inválidos: usa superior, derecho, inferior o izquierdo');
+  if (!['siempre', 'positivo', 'negativo'].includes(condicion)) throw new Error('Condición inválida');
+  return { tipo, condicion, sourceHandle: edge.sourceHandle, targetHandle: edge.targetHandle };
+}
+function _validateAnchorCapacity(edge, existing) {
+  for (const id of [edge.sourceId, edge.targetId]) {
+    if (existing.filter(e => String(e.sourceId) === String(id) || String(e.targetId) === String(id)).length >= 4) throw new Error('Máximo 4 conexiones por figura');
+  }
+  const used = (id, port) => existing.some(e => String(e.sourceId) === String(id) && e.sourceHandle === port || String(e.targetId) === String(id) && e.targetHandle === port);
+  if (used(edge.sourceId, edge.sourceHandle) || used(edge.targetId, edge.targetHandle)) throw new Error('Anclaje ocupado: una conexión por lado');
+  if (existing.some(e => String(e.sourceId) === String(edge.sourceId) && String(e.targetId) === String(edge.targetId) || String(e.sourceId) === String(edge.targetId) && String(e.targetId) === String(edge.sourceId))) throw new Error('Ya existe una conexión entre estas figuras');
 }
 
 // Captura únicamente las filas del flujo editado, conservando columnas extra y fórmulas.
@@ -458,27 +453,19 @@ function _saveFullFlow(data) {
   if (!Array.isArray(nodes) || !nodes.length || !Array.isArray(edges)) throw new Error('Grafo inválido');
   const keys = nodes.map(n => String(n._tempId));
   if (nodes.some(n => n._tempId == null) || new Set(keys).size !== keys.length) throw new Error('IDs temporales inválidos o duplicados');
-  if (!nodes.some(n => n.tipo === 'inicio')) throw new Error('El flujo necesita al menos un activador');
   for (const node of nodes) {
-    if (!['inicio','paso','decision','fin','flujo-externo','configuracion','base-datos','transformacion','integracion','ia','modelo-ia','formato','notificacion'].includes(node.tipo) || !String(node.titulo || '').trim()) throw new Error('Nodo inválido');
-    if (node.tipo === 'flujo-externo') _requireRecord('flujos', node.refFlowId);
-    const ports = _nodePorts(node);
-    ['inputs', 'outputs'].forEach(side => {
-      if (!Array.isArray(ports[side]) || ports[side].some(p => !p || !String(p.id || '').trim() || !['secuencia', 'modelo'].includes(p.kind)) || new Set(ports[side].map(p => p.id)).size !== ports[side].length) throw new Error('Puertos inválidos o duplicados');
-    });
+    if (!['inicio','paso','decision','fin','nota','documento','subproceso','base-datos','entrada-salida','preparacion','conector'].includes(node.tipo) || !String(node.titulo || '').trim()) throw new Error('Nodo inválido');
+    const metadata = _parseMeta({ metadata: node.metadata }).metadata || {};
+    node.metadata = { ...metadata, anchors: ['top', 'right', 'bottom', 'left'] };
+    node.posZ = 0;
   }
-  const seen = new Set();
+  const validated = [];
   for (const edge of edges) {
     if (!keys.includes(String(edge.sourceId)) || !keys.includes(String(edge.targetId))) throw new Error('Conexión con referencia inválida');
-    const normalized = _validateConnection(edge, nodes[keys.indexOf(String(edge.sourceId))], nodes[keys.indexOf(String(edge.targetId))]);
-    Object.assign(edge, normalized);
-    const key = JSON.stringify([String(edge.sourceId), String(edge.targetId), edge.sourceHandle, edge.targetHandle]);
-    if (seen.has(key)) throw new Error('Conexión duplicada');
-    seen.add(key);
+    Object.assign(edge, _validateConnection(edge, nodes[keys.indexOf(String(edge.sourceId))], nodes[keys.indexOf(String(edge.targetId))]));
+    _validateAnchorCapacity(edge, validated);
+    validated.push(edge);
   }
-  nodes.filter(n => n.tipo === 'decision').forEach(n => ['positivo', 'negativo'].forEach(branch => {
-    if (!edges.some(e => String(e.sourceId) === String(n._tempId) && e.sourceHandle === branch)) throw new Error('La decisión necesita salidas Sí y No: ' + n.titulo);
-  }));
   ['flujos', 'nodos', 'conexiones'].forEach(_writeColumns);
   const old = flow.id ? _getFullFlow(flow.id) : null;
   if (old && (flow.teamId !== old.flow.teamId || flow.processId !== old.flow.processId)) throw new Error('No se puede cambiar el equipo o proceso de un flujo existente');
@@ -494,7 +481,7 @@ function _saveFullFlow(data) {
     const savedEdges = edges.map(edge => {
       const previous = old && old.edges.find(e => String(e.id) === String(edge._tempId));
       const sourceId = ids.get(String(edge.sourceId)), targetId = ids.get(String(edge.targetId));
-      if (!previous) return _createEdge({ ...edge, id: undefined, flowId: savedFlow.id, sourceId, targetId });
+      if (!previous) return _createEdge({ ...edge, id: undefined, flowId: savedFlow.id, sourceId, targetId }, true);
       const row = [previous.id, savedFlow.id, sourceId, targetId, edge.condicion, edge.etiqueta || '', previous.creadoEn, edge.tipo, edge.sourceHandle, edge.targetHandle];
       _updateMapped('conexiones', _findRow('conexiones', previous.id), row);
       return _rObj(HEADERS.conexiones, row);

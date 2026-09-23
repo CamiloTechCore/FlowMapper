@@ -1,37 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newNode, makeEdge, defaultPorts, fromGraph, toGraph, connectionError, validateGraph, arrangeNodes } from '../src/workflow/model.js';
+import { ANCHORS, newNode, makeEdge, fromGraph, toGraph, connectionError, validateGraph, copySelection, pasteSelection } from '../src/workflow/model.js';
 import { createBackend, seedHierarchy, graphPayload } from './gas-harness.mjs';
 
-export function visualGraph(team, process) {
-  const nodes = ['inicio', 'decision', 'ia', 'notificacion', 'modelo-ia', 'transformacion'].map((type, i) => newNode(type, { x: i * 200, y: i * 80 }));
-  nodes[3].data.metadata.ports.inputs.push({ id: 'attachment-in', label: 'Adjunto', kind: 'secuencia' });
-  nodes[3].data.metadata.attachments = [{ id: 'file', name: 'informe.html', value: '{{html}}' }];
-  nodes[1].data.metadata.config = { campo: '{{count}}', operador: 'mayor que', valor: '3' };
-  const edge = (a, b, sourceHandle = 'out', targetHandle = 'in') => makeEdge({ source: nodes[a].id, target: nodes[b].id, sourceHandle, targetHandle }, nodes);
-  const edges = [edge(0, 1), edge(1, 2, 'positivo'), edge(1, 5, 'negativo'), edge(5, 1), edge(2, 3), edge(2, 5), edge(4, 2, 'model-out', 'model-in'), edge(5, 3, 'out', 'attachment-in')];
-  return toGraph({ nombre: 'Flujo visual', teamId: team.id, processId: process.id }, nodes, edges);
-}
-test('guardar decisiones, splits, ciclos, modelos y puertos dinámicos conserva su semántica', () => {
-  const backend = createBackend(), { team, process } = seedHierarchy(backend);
-  const payload = visualGraph(team, process), result = backend.request('saveFullFlow', payload);
-  assert.equal(result.success, true, result.error);
-  const saved = backend.request('getFullFlow', { flowId: result.data.flow.id }).data;
-  const graph = fromGraph(saved);
-  assert.deepEqual(validateGraph(graph.nodes, graph.edges), { errors: [], warnings: [] });
-  assert.equal(saved.edges.filter(e => e.tipo === 'modelo').length, 1);
-  assert.equal(saved.edges.find(e => e.targetHandle === 'attachment-in').tipo, 'secuencia');
-  assert.deepEqual(saved.nodes[3].metadata.attachments, payload.nodes[3].metadata.attachments);
-  assert.deepEqual(saved.nodes[1].metadata.config, payload.nodes[1].metadata.config);
-  assert.deepEqual(graph.nodes[2].position, { x: 400, y: 160 });
-  assert.equal(graph.edges.find(e => e.data.tipo === 'modelo').style.strokeDasharray, '6 6');
-  assert.equal(arrangeNodes(graph.nodes, graph.edges).length, graph.nodes.length);
-});
+function visualGraph(team, process) { return graphPayload(team, process); }
 test('edición conserva IDs, elimina nodos retirados y no duplica flujos', () => {
   const backend = createBackend(), { team, process } = seedHierarchy(backend);
   const saved = backend.request('saveFullFlow', visualGraph(team, process)).data;
   const graph = fromGraph(saved), removed = graph.nodes[3].id;
-  const nodes = graph.nodes.filter(n => n.id !== removed), edges = graph.edges.filter(e => e.target !== removed);
+  const nodes = graph.nodes.filter(n => n.id !== removed), edges = graph.edges.filter(e => e.target !== removed && e.source !== removed);
   nodes[1].data.titulo = 'Decisión actualizada';
   const result = backend.request('saveFullFlow', toGraph({ ...saved.flow, nombre: 'Actualizado' }, nodes, edges));
   assert.equal(result.success, true, result.error);
@@ -56,35 +33,68 @@ test('si falla una edición, restaura el grafo anterior y deja intactos los dem�
     assert.deepEqual(backend.request('getFullFlow', { flowId: other.flow.id }).data, other, table);
   }
 });
-test('rechaza dependencias incorrectas, decisiones incompletas, puertos inexistentes y duplicados antes de escribir', () => {
-  const mutations = [
-    p => { p.edges[0].tipo = 'modelo'; },
-    p => { p.edges[0].targetHandle = 'missing'; },
-    p => { p.edges = p.edges.filter(e => e.condicion !== 'negativo'); },
-    p => { p.edges.push({ ...p.edges[0] }); },
-    p => { p.nodes[0].metadata.ports.outputs.push({ ...p.nodes[0].metadata.ports.outputs[0] }); },
-    p => { p.edges[1].condicion = 'siempre'; },
-  ];
-  for (const mutate of mutations) {
-    const backend = createBackend(), { team, process } = seedHierarchy(backend), payload = visualGraph(team, process);
+
+test('cuatro conexiones combinadas: todos los lados pueden enviar y recibir, la quinta se rechaza', () => {
+  const nodes = Array.from({ length: 6 }, () => newNode('paso'));
+  const edges = ANCHORS.map((p, i) => makeEdge(i % 2 ? { source: nodes[i+1].id, target: nodes[0].id, sourceHandle: 'top', targetHandle: p.id } : { source: nodes[0].id, target: nodes[i+1].id, sourceHandle: p.id, targetHandle: 'top' }, nodes));
+  assert.deepEqual(validateGraph(nodes, edges).errors, []);
+  const fifth = { source: nodes[0].id, target: nodes[5].id, sourceHandle: 'left', targetHandle: 'top' };
+  assert.match(connectionError(fifth, nodes, edges), /Máximo 4/);
+  const backend = createBackend(), { team, process } = seedHierarchy(backend);
+  const flow = { nombre: 'Cuatro lados', teamId: team.id, processId: process.id };
+  const bad = backend.request('saveFullFlow', toGraph(flow, nodes, [...edges, makeEdge(fifth, nodes)]));
+  assert.equal(bad.success, false); assert.match(bad.error, /Máximo 4/);
+  assert.equal(backend.request('getAllFlows').data.length, 0);
+  const good = backend.request('saveFullFlow', toGraph(flow, nodes, edges));
+  assert.equal(good.success, true, good.error);
+  const direct = backend.request('createEdge', { flowId: good.data.flow.id, sourceId: good.data.nodes[0].id, targetId: good.data.nodes[5].id, sourceHandle: 'left', targetHandle: 'top' });
+  assert.equal(direct.success, false); assert.match(direct.error, /Máximo 4/);
+});
+test('anclajes ocupados en ambas direcciones, conexiones paralelas y puertos inexistentes se rechazan', () => {
+  for (const mutate of [
+    p => p.edges.push({ sourceId: '3', targetId: 1, sourceHandle: 'top', targetHandle: 'left' }),
+    p => p.edges.push({ sourceId: 'decision-id', targetId: 1, sourceHandle: 'left', targetHandle: 'right' }),
+    p => { p.edges[0].sourceHandle = 'extra'; },
+    p => { p.edges[0].targetId = p.edges[0].sourceId; },
+  ]) {
+    const backend = createBackend(), { team, process } = seedHierarchy(backend), payload = graphPayload(team, process);
     mutate(payload);
     assert.equal(backend.request('saveFullFlow', payload).success, false);
     assert.equal(backend.request('getAllFlows').data.length, 0);
   }
 });
-test('editor distingue puertos de modelo, permite retornos y advierte nodos desconectados', () => {
-  const nodes = ['inicio', 'decision', 'ia', 'modelo-ia'].map(type => newNode(type));
-  assert.match(connectionError({ source: nodes[3].id, target: nodes[2].id, sourceHandle: 'model-out', targetHandle: 'in' }, nodes), /datos/);
-  assert.equal(connectionError({ source: nodes[2].id, target: nodes[1].id, sourceHandle: 'out', targetHandle: 'in' }, nodes), '');
-  const result = validateGraph(nodes, []);
-  assert.equal(result.errors.length, 2); assert.equal(result.warnings.length, 3);
-  assert.deepEqual(defaultPorts('decision').outputs.map(p => p.id), ['positivo', 'negativo']);
-});
-test('grafos antiguos se abren con formas y puertos predeterminados', () => {
+test('ciclos y líneas discontinuas sobreviven al guardado sin un activador obligatorio', () => {
   const backend = createBackend(), { team, process } = seedHierarchy(backend);
-  const saved = backend.request('saveFullFlow', graphPayload(team, process)).data;
-  saved.edges.forEach(e => { delete e.tipo; delete e.sourceHandle; delete e.targetHandle; });
-  const graph = fromGraph(saved);
-  assert.equal(graph.edges[1].sourceHandle, 'positivo');
-  assert.deepEqual(validateGraph(graph.nodes, graph.edges).errors, []);
+  const nodes = ['documento','decision','base-datos'].map(type => newNode(type));
+  const edges = nodes.map((n, i) => makeEdge({ source: n.id, target: nodes[(i+1)%3].id, sourceHandle: 'bottom', targetHandle: 'top' }, nodes, { data: { tipo: i === 1 ? 'discontinua' : 'secuencia', condicion: i === 1 ? 'positivo' : 'siempre' }, label: i === 1 ? 'Sí' : '' }));
+  const result = backend.request('saveFullFlow', toGraph({ nombre: 'Ciclo', teamId: team.id, processId: process.id }, nodes, edges));
+  assert.equal(result.success, true, result.error);
+  const reopened = fromGraph(result.data);
+  assert.deepEqual(validateGraph(reopened.nodes, reopened.edges).errors, []);
+  assert.equal(reopened.edges[1].style.strokeDasharray, '6 5');
+  assert.equal(reopened.edges[1].label, 'Sí');
+});
+test('portapapeles copia el subgrafo con IDs nuevos, datos independientes y sin enlaces al original', () => {
+  const nodes = ['paso','decision','fin'].map(type => ({ ...newNode(type), selected: true }));
+  const edge = makeEdge({ source: nodes[0].id, target: nodes[1].id, sourceHandle: 'bottom', targetHandle: 'top' }, nodes);
+  const copy = copySelection(nodes, [edge]), pasted = pasteSelection(copy, 80);
+  assert.equal(new Set([...nodes, ...pasted.nodes].map(n => n.id)).size, 6);
+  assert.equal(pasted.edges.length, 1);
+  assert.equal(pasted.edges[0].source, pasted.nodes[0].id);
+  assert.equal(pasted.edges[0].target, pasted.nodes[1].id);
+  pasted.nodes[0].data.metadata.config.change = true;
+  assert.equal(nodes[0].data.metadata.config.change, undefined);
+  assert.equal(pasted.nodes[0].position.x, nodes[0].position.x + 80);
+  assert.deepEqual(validateGraph(pasted.nodes, pasted.edges).errors, []);
+  const edgeOnly = copySelection(nodes.map(n => ({ ...n, selected: false })), [{ ...edge, selected: true }]);
+  assert.equal(edgeOnly.nodes.length, 2); assert.equal(edgeOnly.edges.length, 1);
+});
+test('migración visual conserva conexiones antiguas incluso cuando superan la capacidad', () => {
+  const nodes = Array.from({ length: 6 }, (_, i) => ({ id: String(i), tipo: 'ia', titulo: 'Actividad ' + i, metadata: { config: { prompt: 'conservar' } } }));
+  const edges = nodes.slice(1).map((n, i) => ({ id: String(i), sourceId: '0', targetId: n.id, sourceHandle: 'out', targetHandle: 'in', tipo: 'modelo' }));
+  const graph = fromGraph({ nodes, edges });
+  assert.equal(graph.nodes.length, 6); assert.equal(graph.edges.length, 5);
+  assert.equal(graph.nodes[0].data.metadata.legacyTipo, 'ia');
+  assert.equal(graph.nodes[0].data.metadata.config.prompt, 'conservar');
+  assert.match(validateGraph(graph.nodes, graph.edges).errors.join(' '), /Máximo 4/);
 });

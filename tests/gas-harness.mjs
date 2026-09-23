@@ -84,10 +84,10 @@ export function graphPayload(team, process) {
       { _tempId: 'escalar-id', tipo: 'paso', titulo: 'Escalar', posY: -3 },
     ],
     edges: [
-      { sourceId: 1, targetId: 'decision-id', condicion: 'siempre' },
-      { sourceId: 'decision-id', targetId: '3', condicion: 'positivo', etiqueta: 'Sí' },
-      { sourceId: 'decision-id', targetId: 'escalar-id', condicion: 'negativo', etiqueta: 'No' },
-      { sourceId: 'escalar-id', targetId: 3, condicion: 'siempre' },
+      { sourceId: 1, targetId: 'decision-id', sourceHandle: 'bottom', targetHandle: 'top', condicion: 'siempre' },
+      { sourceId: 'decision-id', targetId: '3', sourceHandle: 'right', targetHandle: 'top', condicion: 'positivo', etiqueta: 'Sí' },
+      { sourceId: 'decision-id', targetId: 'escalar-id', sourceHandle: 'bottom', targetHandle: 'top', condicion: 'negativo', etiqueta: 'No' },
+      { sourceId: 'escalar-id', targetId: 3, sourceHandle: 'right', targetHandle: 'left', condicion: 'siempre' },
     ],
   };
 }

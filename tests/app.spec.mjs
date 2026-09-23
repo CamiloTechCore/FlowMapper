@@ -29,7 +29,7 @@ test('crear equipo, proceso y flujo; recorrerlo y recuperarlo tras recargar', as
   const process = backend.request('getAllProcesses').data[0];
   await page.getByLabel('Proceso', { exact: true }).selectOption(process.id);
   await page.getByLabel('Título del nodo', { exact: true }).fill('Inicio');
-  await addNode(page, 'Paso', 'Validar solicitud');
+  await addNode(page, 'Actividad', 'Validar solicitud');
   await addNode(page, 'Fin');
   await connect(page, 'Inicio', 'Validar solicitud');
   await connect(page, 'Validar solicitud', 'Fin');
