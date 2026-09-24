@@ -60,17 +60,18 @@ test('un fallo remoto conserva el borrador local y no borra el diseño al recupe
   await page.getByRole('button',{name:'Editar flujo',exact:true}).click();
   await expect(page.getByLabel('Título del nodo',{exact:true})).toHaveValue('Cambios sin red');
 });
-test('cursor nativo al arrastrar y conexiones animadas respetan movimiento reducido',async({page})=>{
+test('cursor oscuro al arrastrar y conexiones animadas respetan movimiento reducido',async({page})=>{
   await page.setViewportSize({width:1500,height:1000});
   const backend=createBackend(),{team}=seedHierarchy(backend);
   await mockBackend(page,backend);await openEditor(page,team);
   await addNode(page,'Actividad','Revisar');await connect(page,'Inicio','Revisar');
   const pane=page.locator('.react-flow__pane');
   const openCursor=await pane.evaluate(e=>getComputedStyle(e).cursor);
-  expect(openCursor).toBe('grab');
+  expect(openCursor).toMatch(/^url\(.+\) 16 16, grab$/);
   const rect=await pane.boundingBox();await page.mouse.move(rect.x+35,rect.y+95);await page.mouse.down();
   const grabCursor=await pane.evaluate(e=>getComputedStyle(e).cursor);
-  expect(grabCursor).toBe('grabbing');await page.mouse.up();
+  expect(grabCursor).toMatch(/^url\(.+\) 16 16, grabbing$/);
+  expect(grabCursor).not.toBe(openCursor);await page.mouse.up();
   await expect(page.locator('.electric-pulse')).toHaveCount(1);
   await expect(page.locator('.electric-pulse')).toHaveCSS('animation-name','electric-current');
   await page.emulateMedia({reducedMotion:'reduce'});

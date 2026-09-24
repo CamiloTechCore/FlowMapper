@@ -12,3 +12,13 @@
 .wf-editor button:disabled { cursor: default; }
 .wf-draft-status { overflow-wrap: anywhere; }
 @media(prefers-reduced-motion: reduce) { .electric-pulse { animation: none; opacity: .25; filter: none; } }
+
+/* Dark cursors with a light outline remain visible over nodes and grid lines. */
+:is(.wf-editor .wf-canvas, .overview-canvas) .react-flow { cursor: url('../assets/cursors/arrow.svg') 5 3, default; }
+:is(.wf-editor .wf-canvas, .overview-canvas) .react-flow__pane.draggable,
+:is(.wf-editor .wf-canvas, .overview-canvas) .react-flow__node.draggable,
+:is(.wf-editor .wf-canvas, .overview-canvas) .react-flow__minimap.pannable { cursor: url('../assets/cursors/grab.svg') 16 16, grab; }
+:is(.wf-editor .wf-canvas, .overview-canvas) .react-flow__pane.dragging,
+:is(.wf-editor .wf-canvas, .overview-canvas) .react-flow__node.dragging { cursor: url('../assets/cursors/grabbing.svg') 16 16, grabbing; }
+:is(.wf-editor .wf-canvas, .overview-canvas) :is(a, button, .react-flow__edge) { cursor: url('../assets/cursors/arrow.svg') 5 3, pointer; }
+.wf-editor .wf-canvas .react-flow__handle.connectionindicator { cursor: url('../assets/cursors/connect.svg') 16 16, crosshair; }

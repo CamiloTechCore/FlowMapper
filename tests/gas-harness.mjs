@@ -84,7 +84,7 @@ export function graphPayload(team, process) {
     nodes: [
       { _tempId: 1, tipo: 'inicio', titulo: 'Inicio', posX: -3 },
       { _tempId: 'decision-id', tipo: 'decision', titulo: '¿Resuelto?', posX: 0 },
-      { _tempId: 3, tipo: 'fin', titulo: 'Fin', posX: 3 },
+      { _tempId: 3, tipo: 'paso', titulo: 'Cerrar ticket', posX: 3 },
       { _tempId: 'escalar-id', tipo: 'paso', titulo: 'Escalar', posY: -3 },
     ],
     edges: [

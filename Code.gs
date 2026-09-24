@@ -492,7 +492,7 @@ function _createEdge(d, validatedGraph) {
   if (source.flowId !== d.flowId || target.flowId !== d.flowId) throw new Error('Los nodos deben pertenecer al mismo flujo');
   const id=_newId('conexiones', d), ts=_now();
   const normalized = _validateConnection(d, source, target);
-  if (validatedGraph !== true) _validateAnchorCapacity({ ...d, ...normalized }, _rows('conexiones').filter(e => e.flowId === d.flowId));
+  if (validatedGraph !== true) _validateAnchorCapacity({ ...d, ...normalized }, _rows('conexiones').filter(e => e.flowId === d.flowId), source, target);
   const row=[id, d.flowId, d.sourceId, d.targetId, normalized.condicion, d.etiqueta||'', d.creadoEn||ts, normalized.tipo, normalized.sourceHandle, normalized.targetHandle];
   _appendMapped('conexiones', row);
   return _rObj(HEADERS.conexiones, row);
@@ -508,9 +508,10 @@ function _validateConnection(edge, source, target) {
   if (!['siempre', 'positivo', 'negativo'].includes(condicion)) throw new Error('Condición inválida');
   return { tipo, condicion, sourceHandle: edge.sourceHandle, targetHandle: edge.targetHandle };
 }
-function _validateAnchorCapacity(edge, existing) {
-  for (const id of [edge.sourceId, edge.targetId]) {
-    if (existing.filter(e => String(e.sourceId) === String(id) || String(e.targetId) === String(id)).length >= 4) throw new Error('Máximo 4 conexiones por figura');
+function _validateAnchorCapacity(edge, existing, source, target) {
+  for (const [id, node] of [[edge.sourceId, source], [edge.targetId, target]]) {
+    const limit = ['inicio', 'fin'].includes(node.tipo) ? 1 : 4;
+    if (existing.filter(e => String(e.sourceId) === String(id) || String(e.targetId) === String(id)).length >= limit) throw new Error(limit === 1 ? 'Inicio y Fin solo permiten una conexión' : 'Máximo 4 conexiones por figura');
   }
   const used = (id, port) => existing.some(e => String(e.sourceId) === String(id) && e.sourceHandle === port || String(e.targetId) === String(id) && e.targetHandle === port);
   if (used(edge.sourceId, edge.sourceHandle) || used(edge.targetId, edge.targetHandle)) throw new Error('Anclaje ocupado: una conexión por lado');
@@ -534,7 +535,7 @@ function _saveFullFlow(data) {
   for (const edge of edges) {
     if (!keys.includes(String(edge.sourceId)) || !keys.includes(String(edge.targetId))) throw new Error('Conexión con referencia inválida');
     Object.assign(edge, _validateConnection(edge, nodes[keys.indexOf(String(edge.sourceId))], nodes[keys.indexOf(String(edge.targetId))]));
-    _validateAnchorCapacity(edge, validated);
+    _validateAnchorCapacity(edge, validated, nodes[keys.indexOf(String(edge.sourceId))], nodes[keys.indexOf(String(edge.targetId))]);
     validated.push(edge);
   }
   ['flujos', 'nodos', 'conexiones'].forEach(_writeColumns);

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ReactFlow, Background, Controls, MiniMap, Position } from '@xyflow/react';
+import { ReactFlow, Background, Controls, MiniMap, Position, useNodesState } from '@xyflow/react';
 import { useData } from '../../context/dataStore';
 import api from '../../services/api';
 import { electricEdgeTypes } from '../../components/edgeTypes';
@@ -54,12 +54,18 @@ export default function TeamOverviewPage() {
     })));
     return { nodes, edges };
   }, [teamFlows, processes, result.graphs]);
+  const [measuredNodes, setMeasuredNodes, onNodesChange] = useNodesState(graph.nodes);
+  useEffect(() => {
+    // Preserve React Flow's measurements: the minimap needs actual node dimensions.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setMeasuredNodes(graph.nodes);
+  }, [graph.nodes, setMeasuredNodes]);
   return <div className="team-overview">
     <header className="topbar"><div><h1>Vista general</h1><p>Flujos conectados entre los procesos del equipo</p></div><div className="topbar-actions"><label>Equipo<select aria-label="Equipo del mapa" className="form-select" value={teamId} onChange={e => setParams({ equipo: e.target.value })}>{teams.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}</select></label><button className="btn btn-secondary" disabled={result.loading} onClick={() => setRevision(r => r + 1)}>Actualizar mapa</button><Link className="btn btn-secondary" to={'/?equipo=' + teamId}>Biblioteca</Link></div></header>
     <div className="overview-status" role="status">{result.loading ? 'Cargando conexiones…' : `${graph.nodes.length} flujos · ${graph.edges.length} vínculos dentro del equipo`}</div>
     {result.errors.length > 0 && <div role="alert" className="connection-notice">Mapa incompleto: {result.errors.map(e => `${teamFlows.find(f => f.id === e.id)?.nombre || e.id}: ${e.message}`).join('; ')}. Puedes reintentar con Actualizar mapa.</div>}
     <main className="overview-canvas" aria-label="Mapa de flujos del equipo">
-      {!teamFlows.length ? <p className="overview-empty">Este equipo todavía no tiene flujos.</p> : result.loading ? <p className="overview-empty">Cargando el mapa del equipo…</p> : <ReactFlow key={teamId + revision + requestKey} nodes={graph.nodes} edges={graph.edges} edgeTypes={electricEdgeTypes} fitView fitViewOptions={{ padding: .25, maxZoom: 1 }} minZoom={.15} maxZoom={2} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} colorMode="light"><Background gap={24} color="#dde5ef" /><Controls showInteractive={false} /><MiniMap pannable zoomable /></ReactFlow>}
+      {!teamFlows.length ? <p className="overview-empty">Este equipo todavía no tiene flujos.</p> : result.loading ? <p className="overview-empty">Cargando el mapa del equipo…</p> : <ReactFlow key={teamId + revision + requestKey} nodes={measuredNodes} onNodesChange={onNodesChange} edges={graph.edges} edgeTypes={electricEdgeTypes} fitView fitViewOptions={{ padding: .25, maxZoom: 1 }} minZoom={.15} maxZoom={2} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} colorMode="light"><Background gap={24} color="#dde5ef" /><Controls showInteractive={false} /><MiniMap pannable zoomable ariaLabel="Miniatura del mapa general" nodeColor="#647da3" nodeStrokeColor="#334d73" nodeStrokeWidth={2} bgColor="#edf2f8" maskColor="rgba(30, 45, 70, .18)" maskStrokeColor="#526b91" maskStrokeWidth={2} /></ReactFlow>}
     </main>
   </div>;
 }

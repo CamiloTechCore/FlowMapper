@@ -18,6 +18,7 @@ export function newNode(tipo, position = { x: 100, y: 100 }) {
 export function anchorUsed(edges, id, port) {
   return edges.some(e => e.source === id && e.sourceHandle === port || e.target === id && e.targetHandle === port);
 }
+export const connectionLimit = node => ['inicio', 'fin'].includes(node?.data.tipo) ? 1 : 4;
 export function connectionError(c, nodes, edges = []) {
   if (!nodes.some(n => n.id === c.source) || !nodes.some(n => n.id === c.target)) return 'Selecciona dos figuras.';
   if (nodes.some(n => [c.source, c.target].includes(n.id) && isAnnotation(n))) return 'Los textos flotantes no admiten conexiones.';
@@ -25,7 +26,8 @@ export function connectionError(c, nodes, edges = []) {
   if (c.source === c.target) return 'Conecta figuras diferentes.';
   if (![c.sourceHandle, c.targetHandle].every(id => ANCHORS.some(p => p.id === id))) return 'Selecciona un anclaje superior, inferior, izquierdo o derecho.';
   for (const id of [c.source, c.target]) {
-    if (edges.filter(e => e.source === id || e.target === id).length >= 4) return 'Máximo 4 conexiones por figura, contando entradas y salidas.';
+    const limit = connectionLimit(nodes.find(n => n.id === id));
+    if (edges.filter(e => e.source === id || e.target === id).length >= limit) return limit === 1 ? 'Inicio y Fin solo permiten una conexión.' : 'Máximo 4 conexiones por figura, contando entradas y salidas.';
   }
   if (anchorUsed(edges, c.source, c.sourceHandle) || anchorUsed(edges, c.target, c.targetHandle)) return 'Anclaje ocupado: solo se permite una conexión por lado.';
   if (edges.some(e => e.source === c.source && e.target === c.target || e.source === c.target && e.target === c.source)) return 'Ya existe una conexión entre estas figuras.';

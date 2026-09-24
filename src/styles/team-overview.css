@@ -10,4 +10,5 @@
 .overview-flow span { color: #6d7e95; font-size: 11px; }
 .overview-flow a { color: #6650a3; text-decoration: none; font-size: 12px; }
 .overview-empty { padding: 40px; text-align: center; color: #7c8ba2; }
-@media(max-width:760px) { .team-overview .topbar { flex-wrap: wrap; padding: 12px; } .team-overview .topbar-actions { flex-wrap: wrap; } .overview-canvas .react-flow__minimap { display: none; } }
+.overview-canvas .react-flow__minimap { border: 1px solid #b7c6dc; border-radius: 8px; overflow: hidden; box-shadow: 0 3px 14px #23334c1a; }
+@media(max-width:760px) { .team-overview .topbar { flex-wrap: wrap; padding: 12px; } .team-overview .topbar-actions { flex-wrap: wrap; } .overview-canvas .react-flow__minimap svg { width: 130px; height: 95px; } }

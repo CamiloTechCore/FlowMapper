@@ -1,0 +1,68 @@
+import { test, expect } from '@playwright/test';
+import { createBackend, seedHierarchy, graphPayload } from './gas-harness.mjs';
+import { mockBackend, addNode, connect } from './editor-helpers.mjs';
+
+const node = (page, title) => page.getByRole('dialog').locator('.diagram-node').filter({ has: page.locator('strong', { hasText: new RegExp('^' + title + '$') }) });
+const pulse = handle => handle.evaluate(e => ({ name: getComputedStyle(e, '::before').animationName, duration: getComputedStyle(e, '::before').animationDuration }));
+
+test('anclajes palpitan solo libres en el creador, ocultan excedentes y se recuperan al desconectar', async ({ page }) => {
+  await page.setViewportSize({ width: 1500, height: 1000 });
+  const backend = createBackend(), { team } = seedHierarchy(backend);
+  await mockBackend(page, backend); await page.goto('/equipos/' + team.id);
+  await page.getByRole('button', { name: '+ Flujo', exact: true }).click();
+  await page.getByLabel('Nombre del flujo', { exact: true }).fill('Anclajes disponibles');
+  const start = node(page, 'Inicio');
+  await expect(start.locator('.is-available')).toHaveCount(4);
+  expect(await pulse(start.locator('.is-available').first())).toEqual({ name: 'handle-pulse', duration: '1.5s' });
+  await addNode(page, 'Actividad', 'Acción');
+  await addNode(page, 'Fin', 'Fin');
+  for (const title of ['A', 'B']) await addNode(page, 'Actividad', title);
+  await connect(page, 'Inicio', 'Acción');
+  await expect(start.locator('.is-hidden')).toHaveCount(3);
+  await expect(start.locator('.is-available')).toHaveCount(0);
+  await expect(start.locator('.is-connected')).toHaveCount(1);
+  await connect(page, 'Inicio', 'A', 'Derecho');
+  await expect(page.getByRole('dialog').getByRole('status')).toContainText('una conexión');
+  await connect(page, 'Acción', 'Fin');
+  await expect(node(page, 'Fin').locator('.is-hidden')).toHaveCount(3);
+  await connect(page, 'Acción', 'A', 'Derecho');
+  await connect(page, 'B', 'Acción', 'Inferior', 'Izquierdo');
+  await expect(node(page, 'Acción').locator('.is-connected')).toHaveCount(4);
+  await expect(node(page, 'Acción').locator('.is-available')).toHaveCount(0);
+  await expect(page.getByRole('dialog').locator('.react-flow__edge-path')).toHaveCount(4);
+  await page.getByRole('button', { name: 'Ordenar', exact: true }).click();
+  await page.getByRole('button', { name: 'Ver todo', exact: true }).click();
+  const firstEdge = page.getByRole('dialog').locator('.react-flow__edge').first();
+  await firstEdge.focus();
+  await page.keyboard.press('Enter');
+  await expect(firstEdge).toHaveClass(/selected/);
+  await page.getByRole('button', { name: 'Eliminar selección', exact: true }).click();
+  await expect(start.locator('.is-available')).toHaveCount(4);
+  await expect(start.locator('.is-hidden')).toHaveCount(0);
+  await expect(node(page, 'Acción').locator('.is-available')).toHaveCount(1);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect((await pulse(start.locator('.is-available').first())).name).toBe('none');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.getByRole('button', { name: 'Guardar flujo', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.wf-read-canvas .is-available')).toHaveCount(0);
+  const handles = page.locator('.wf-read-canvas .react-flow__handle');
+  expect(await handles.evaluateAll(items => items.every(e => getComputedStyle(e, '::before').animationName === 'none'))).toBe(true);
+});
+
+test('miniatura general muestra los flujos con contraste también en móvil', async ({ page }) => {
+  const backend = createBackend(), { team, process } = seedHierarchy(backend);
+  const first = backend.request('saveFullFlow', graphPayload(team, process)).data;
+  const payload = graphPayload(team, process); payload.flow.nombre = 'Otro flujo'; payload.nodes[0].refFlowId = first.flow.id;
+  backend.request('saveFullFlow', payload);
+  await mockBackend(page, backend); await page.goto('/vista-general?equipo=' + team.id);
+  const minimap = page.getByRole('img', { name: 'Miniatura del mapa general' });
+  await expect(minimap).toBeVisible();
+  await expect(minimap.locator('.react-flow__minimap-node')).toHaveCount(2);
+  await expect(minimap.locator('.react-flow__minimap-node').first()).toHaveCSS('fill', 'rgb(100, 125, 163)');
+  expect(await page.locator('.overview-canvas .react-flow__pane').evaluate(e => getComputedStyle(e).cursor)).toMatch(/^url\(.+\) 16 16, grab$/);
+  await page.screenshot({ path: 'test-results/overview-minimap.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(minimap).toBeVisible();
+  expect((await minimap.boundingBox()).width).toBeLessThanOrEqual(140);
+});

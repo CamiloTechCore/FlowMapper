@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
+import { Handle, Position, useNodeConnections, useUpdateNodeInternals } from '@xyflow/react';
 import { Link, useLocation } from 'react-router-dom';
-import { ANCHORS, isAnnotation, descriptionLinks } from '../workflow/model';
+import { ANCHORS, anchorUsed, connectionLimit, isAnnotation, descriptionLinks } from '../workflow/model';
 import '../styles/diagram.css';
 
 export function ShapeGlyph({ shape, width = 280, height = 180 }) {
@@ -20,6 +20,9 @@ export function ShapeGlyph({ shape, width = 280, height = 180 }) {
 }
 
 export default function DiagramNode({ id, data, selected, isConnectable }) {
+  const connections = useNodeConnections({ id });
+  const atCapacity = connections.length >= connectionLimit({ data });
+  const canStart = data.tipo !== 'decision' || connections.filter(c => c.source === id).length < 2;
   const location = useLocation();
   const [tooltip, setTooltip] = useState(null);
   const hideTimer = useRef(null);
@@ -53,6 +56,12 @@ export default function DiagramNode({ id, data, selected, isConnectable }) {
     <div className="diagram-copy" ref={text} style={{ width: copyWidth }}><strong>{data.titulo}</strong></div>
     {!annotation && data.descripcion && tooltip && createPortal(<div id={`description-${id}`} className="diagram-tooltip" role="tooltip" style={tooltip} onMouseEnter={() => clearTimeout(hideTimer.current)} onMouseLeave={hideDescription}>{data.descripcion}</div>, document.body)}
     {!annotation && <div className="diagram-links nodrag nopan">{urls.map((url, i) => <a key={url} href={url} target="_blank" rel="noopener noreferrer" aria-label={`Abrir enlace ${i + 1} de ${data.titulo}`} title={url} onClick={e => e.stopPropagation()}>↗</a>)}{data.refFlowId && <Link to={'/flujos/' + encodeURIComponent(data.refFlowId)} state={{ flowTrail: trail }} target={isConnectable ? '_blank' : undefined} rel={isConnectable ? 'noopener noreferrer' : undefined} title="Abrir flujo referenciado" aria-label={`Continuar al flujo vinculado desde ${data.titulo}`} onClick={e => e.stopPropagation()}>⇢</Link>}</div>}
-    {!annotation && ANCHORS.map(anchor => <Handle key={anchor.id} id={anchor.id} type="source" position={Position[anchor.id[0].toUpperCase() + anchor.id.slice(1)]} isConnectable={isConnectable} title={`${anchor.label}: una conexión`} aria-label={`Anclaje ${anchor.label}`} style={shape === 'document' && anchor.id === 'bottom' ? { bottom: 14 } : shape === 'parallelogram' && ['left','right'].includes(anchor.id) ? { [anchor.id]: 16 } : undefined} />)}
+    {!annotation && ANCHORS.map(anchor => {
+      const used = anchorUsed(connections, id, anchor.id);
+      const available = !used && !atCapacity;
+      // Keep anchors measurable so existing edges retain their endpoints.
+      const hidden = !used && (!isConnectable || atCapacity);
+      return <Handle key={anchor.id} id={anchor.id} type="source" position={Position[anchor.id[0].toUpperCase() + anchor.id.slice(1)]} isConnectable={isConnectable && available} isConnectableStart={canStart} className={hidden ? 'is-hidden' : isConnectable && available ? 'is-available' : 'is-connected'} title={`${anchor.label}: ${used ? 'conectado' : canStart ? 'una conexión' : 'solo entrada'}`} aria-label={`Anclaje ${anchor.label}`} aria-hidden={hidden || undefined} style={shape === 'document' && anchor.id === 'bottom' ? { bottom: 14 } : shape === 'parallelogram' && ['left','right'].includes(anchor.id) ? { [anchor.id]: 16 } : undefined} />;
+    })}
   </div>;
 }
