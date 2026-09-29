@@ -1,3 +1,4 @@
+import TeamTag from '../../components/TeamTag';
 import { FLOW_STATES, normalizeStatus } from '../../workflow/model';
 import React, { useState } from 'react';
 import { useData } from '../../context/dataStore';
@@ -37,7 +38,7 @@ export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
 
   const handleSaveFlow = async ({ flow, nodes: rawNodes, edges: rawEdges }, options) => {
       const result = await saveFullFlow({ flow: { ...flow, teamId: team.id }, nodes: rawNodes, edges: rawEdges });
-      if (options?.background) return result;
+      if (options?.keepOpen) return result;
       toast.success('Flujo creado con ' + rawNodes.length + ' nodos ✓');
       setShowFlowModal(false);
       onOpenFlow(result.flow);
@@ -58,7 +59,7 @@ export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
           </div>
           <div>
             <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16 }}>{team.nombre}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{teamProcesses.length} procesos · {teamFlows.length} flujos</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{teamProcesses.length} procesos · {teamFlows.length} flujos</div><TeamTag team={team} />
           </div>
         </div>
         <div className="topbar-actions">
@@ -89,6 +90,7 @@ export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
                   style={{ borderRadius: 12, padding: 12, marginBottom: 8 }}
                 >
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{proc.nombre}</div>
+                  <TeamTag team={team} />
                   {proc.descripcion && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3, lineHeight: 1.4 }}>{proc.descripcion}</div>}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
                     <Badge variant="cyan">{count} flujo{count !== 1 ? 's' : ''}</Badge>
@@ -132,6 +134,7 @@ export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
                         {proc && <div className="card-sub">{proc.nombre}</div>}
                       </div>
                     </div>
+                    <TeamTag team={team} />
                     {flow.descripcion && <div className="card-desc" style={{ fontSize: 12 }}>{flow.descripcion}</div>}
                     <div className="card-footer">
                       <Badge

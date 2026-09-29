@@ -54,7 +54,7 @@ test('las ramas de decisión recorren destinos distintos y la galería filtra', 
   const graph = backend.request('saveFullFlow', graphPayload(team, process)).data;
   await mockBackend(page, backend); await page.goto('/');
   await expect(page.getByText('Resolver ticket', { exact: true })).toBeVisible();
-  await page.getByPlaceholder('🔍 Buscar flujo...').fill('inexistente');
+  await page.getByLabel('Buscar en biblioteca').fill('inexistente');
   await expect(page.getByText('No hay flujos', { exact: true })).toBeVisible();
   await page.goto('/flujos/' + graph.flow.id);
   await page.getByRole('button', { name: '▶ Recorrer', exact: true }).click();

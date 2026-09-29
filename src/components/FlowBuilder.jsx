@@ -7,8 +7,8 @@ import '../styles/workflow-shapes.css';
 import { CATALOG, FLOW_STATES, normalizeStatus, isAnnotation, CATEGORIES, ANCHORS, connectionLimit, newNode, copySelection, pasteSelection, decorateEdge, connectionError, makeEdge, fromGraph, toGraph, validateGraph, arrangeNodes } from '../workflow/model';
 import api from '../services/api';
 import { GAS_URL } from '../services/config';
-import { draftKey, draftSnapshot, loadDraft, writeDraft } from '../workflow/drafts';
-import useDraftAutosave from '../hooks/useDraftAutosave';
+import { draftKey, loadDraft } from '../workflow/drafts';
+import NodeLink from './NodeLink';
 import { electricEdgeTypes } from './edgeTypes';
 import '../styles/canvas-effects.css';
 
@@ -49,7 +49,8 @@ function Editor({ processes, allFlows = [], teamId, initialGraph, onSave, onClos
   const storageKey = draftKey(GAS_URL, teamId, initialGraph?.flow.id);
   const [recovered, setRecovered] = useState(() => { try { return loadDraft(localStorage, storageKey); } catch { return null; } });
   const [initial] = useState(() => recovered ? { nodes: recovered.nodes, edges: recovered.edges.map(decorateEdge) } : fromGraph(initialGraph));
-  const [viewport, setViewport] = useState(recovered?.viewport);
+  const [savedNodeIds, setSavedNodeIds] = useState(() => new Set(initialGraph?.nodes.map(n => String(n.id)) || []));
+  const [lastSaved, setLastSaved] = useState('');
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
@@ -61,16 +62,17 @@ function Editor({ processes, allFlows = [], teamId, initialGraph, onSave, onClos
   const [message, setMessage] = useState('');
   const [dirty, setDirty] = useState(!!recovered);
   const savingRef = useRef(false);
+  const pendingSave = useRef(null);
   const [closing, setClosing] = useState(false);
   const [panel, setPanel] = useState('nodes');
   const [search, setSearch] = useState('');
   const [lineStyle, setLineStyle] = useState('secuencia');
   const pasteCount = useRef(0);
   const root = useRef(null), canvas = useRef(null);
-  const { screenToFlowPosition, fitView, setCenter, getZoom, getViewport } = useReactFlow();
+  const { screenToFlowPosition, fitView, setCenter, getZoom } = useReactFlow();
   const selected = nodes.find(n => n.id === selectedId);
   const selectedEdge = edges.find(e => e.id === edgeId);
-  const validation = validateGraph(nodes, edges);
+  const validation = useMemo(() => validateGraph(nodes, edges), [nodes, edges]);
   const requestClose = () => { if (saving) return; if (dirty) setClosing(true); else onClose(); };
   useEffect(() => {
     // Consulta liviana mientras se edita; el guardado conserva la validación de versión.
@@ -147,34 +149,36 @@ function Editor({ processes, allFlows = [], teamId, initialGraph, onSave, onClos
     setForm({ nombre: '', descripcion: '', processId: processes[0]?.id || '', teamId, version: '1.0', ...initialGraph?.flow, estado: normalizeStatus(initialGraph?.flow?.estado) });
     setRecovered(null); setDirty(false); setMessage('');
   }
-  async function save({ automatic = false } = {}) {
-    if (savingRef.current) return '';
+  async function save({ keepOpen = false } = {}) {
+    if (savingRef.current) return;
     const issue = !form.nombre.trim() || !form.processId ? 'Escribe el nombre del flujo y selecciona un proceso.'
       : validation.errors.length ? validation.errors.join(' ')
       : nodes.some(n => n.data.refFlowId && !allFlows.some(f => f.id === n.data.refFlowId && f.id !== form.id)) ? 'Revisa el flujo de destino: una referencia ya no está disponible.' : '';
-    if (issue) {
-      if (!automatic) setMessage(issue);
-      return 'Borrador local conservado. Pendiente de guardar en biblioteca: ' + issue;
-    }
-    savingRef.current = true; setSaving(true); if (!automatic) setMessage('');
+    if (issue) { setMessage(issue); return; }
+    savingRef.current = true; setSaving(true); setMessage('');
     try {
-      try { writeDraft(localStorage, storageKey, draftSnapshot(form, nodes, edges, getViewport())); } catch { /* Se informa de fallos locales desde el autoguardado. */ }
       await api.ensureCompatible();
-      const result = await onSave(toGraph({ ...form, teamId, ...(automatic ? { estado: 'borrador' } : {}) }, nodes, edges), { background: automatic });
+      const payload = toGraph({ ...form, teamId }, nodes, edges);
+      const signature = JSON.stringify(payload);
+      if (pendingSave.current?.signature !== signature) pendingSave.current = { signature, id: crypto.randomUUID() };
+      payload.flow.saveRequestId = pendingSave.current.id;
+      const result = await onSave(payload, { keepOpen });
+      pendingSave.current = null;
       clearDraft();
-      if (automatic) {
+      if (keepOpen) {
         const graph = fromGraph(result), selectedIndex = nodes.findIndex(n => n.id === selectedId);
         setForm(result.flow); setNodes(graph.nodes); setEdges(graph.edges);
-        setSelectedId(graph.nodes[selectedIndex]?.id || null); setEdgeId(null); setConnection({ source: '', target: '', sourceHandle: '', targetHandle: '' });
+        setSavedNodeIds(new Set(graph.nodes.map(n => n.id)));
+        setSelectedId(graph.nodes[selectedIndex]?.id || null); setEdgeId(null);
+        setConnection({ source: '', target: '', sourceHandle: '', targetHandle: '' });
         setRecovered(null); setDirty(false);
+        setLastSaved(new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }));
+        setMessage('Avance guardado. Puedes continuar editando este mismo flujo.');
       }
-      return 'Borrador guardado en biblioteca a las ' + new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) + '.';
     } catch (error) {
-      if (!automatic) setMessage(error.message);
-      return 'Borrador local conservado; autoguardado remoto no confirmado: ' + error.message;
+      setMessage(error.message + ' El diseño sigue abierto; puedes reintentar o exportarlo como JSON.');
     } finally { savingRef.current = false; setSaving(false); }
   }
-  const draftStatus = useDraftAutosave({ storageKey, snapshot: draftSnapshot(form, nodes, edges, viewport), dirty, onIdle: () => save({ automatic: true }) });
   function exportDesign() {
     const blob = new Blob([JSON.stringify({ format: 'flowmapper-visual-1', ...toGraph(form, nodes, edges) }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -199,7 +203,7 @@ function Editor({ processes, allFlows = [], teamId, initialGraph, onSave, onClos
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   }
   return <div ref={root} className="wf-editor" role="dialog" aria-modal="true" aria-label="Constructor visual de flujos" tabIndex={-1} onKeyDown={keyDown}>
-    <header className="wf-toolbar"><button onClick={requestClose} disabled={saving} aria-label="Cerrar constructor">←</button><div className="wf-brand"><strong>FlowMapper <span>Studio</span></strong><small>Diseño de flujos · {nodes.length} nodos · {edges.length} conexiones</small></div><div className="wf-toolbar-actions"><button onClick={exportDesign} disabled={saving}>Exportar JSON</button><button className="wf-primary" onClick={save} disabled={saving}>{saving ? 'Guardando…' : form.id ? 'Guardar cambios' : 'Guardar flujo'}</button></div></header>
+    <header className="wf-toolbar"><button onClick={requestClose} disabled={saving} aria-label="Cerrar constructor">←</button><div className="wf-brand"><strong>FlowMapper <span>Studio</span></strong><small>Diseño de flujos · {nodes.length} nodos · {edges.length} conexiones</small></div><div className="wf-toolbar-actions"><button onClick={exportDesign} disabled={saving}>Exportar JSON</button><button onClick={() => save({ keepOpen: true })} disabled={saving}>Guardar avance</button><button className="wf-primary" onClick={() => save()} disabled={saving}>{saving ? 'Guardando…' : form.id ? 'Guardar cambios' : 'Guardar flujo'}</button></div></header>
     <div className="wf-flow-fields"><Field label="Nombre del flujo" value={form.nombre} placeholder="Ej: Atención de Ticket Técnico" onChange={nombre => { setForm({ ...form, nombre }); setDirty(true); }} /><label className="wf-field"><span>Proceso</span><select aria-label="Proceso" disabled={!!form.id} value={form.processId} onChange={e => { setForm({ ...form, processId: e.target.value }); setDirty(true); }}>{processes.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></label><label className="wf-field"><span>Estado del flujo</span><select aria-label="Estado del flujo" value={form.estado} onChange={e => { setForm({ ...form, estado: e.target.value }); setDirty(true); }}>{Object.entries(FLOW_STATES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><Field label="Descripción del flujo" value={form.descripcion} onChange={descripcion => { setForm({ ...form, descripcion }); setDirty(true); }} /></div>
     {recovered && <div className="wf-message" role="status"><span>Borrador recuperado de este navegador. Puedes continuar donde lo dejaste.</span><button onClick={discardRecovered}>Descartar borrador recuperado</button></div>}
     {message && <div className="wf-message" role="status"><span>{message}</span><button onClick={() => setMessage('')} aria-label="Ocultar mensaje">×</button></div>}
@@ -209,13 +213,13 @@ function Editor({ processes, allFlows = [], teamId, initialGraph, onSave, onClos
     <div className={`wf-workspace show-${panel}`}>
       <aside className="wf-palette"><h2>Formas</h2><p>Arrastra una figura al lienzo o pulsa para añadirla.</p><input aria-label="Buscar tipo de nodo" placeholder="Buscar forma…" value={search} onChange={e => setSearch(e.target.value)} /><div className="wf-catalog">{CATEGORIES.map(category => <details key={category} open><summary>{category}</summary><div className="wf-shape-library">{category === 'Arrows' ? [['secuencia', 'Línea continua'], ['discontinua', 'Línea discontinua']].map(([tipo, label]) => <button key={tipo} draggable aria-label={label} aria-pressed={lineStyle === tipo} onDragStart={e => e.dataTransfer.setData('application/flowmapper', 'line:' + tipo)} onClick={() => { setLineStyle(tipo); setMessage(label + ': arrastra entre dos anclajes para conectar.'); }}><span>{tipo === 'secuencia' ? '──→' : '┄┄→'}</span>{label}</button>) : Object.entries(CATALOG).filter(([, cfg]) => cfg.category === category && cfg.label.toLowerCase().includes(search.toLowerCase())).map(([tipo, cfg]) => <button key={tipo} draggable onDragStart={e => { e.dataTransfer.setData('application/flowmapper', tipo); e.dataTransfer.effectAllowed = 'move'; }} onClick={() => addNode(tipo)} aria-label={`Añadir ${cfg.label}`}>{cfg.shape === 'text' ? <span>T</span> : <ShapeGlyph shape={cfg.shape} />}{cfg.label}</button>)}</div></details>)}</div><div className="wf-legend"><p>Inicio y Fin: una conexión. Las demás figuras: hasta cuatro conexiones, una por lado. Los anclajes libres palpitan.</p><p>Para copiar varias figuras: Mayús + clic o arrastra una selección con Mayús. Copiar una conexión incluye sus extremos.</p></div></aside>
       <main className="wf-canvas" ref={canvas} tabIndex={0} aria-label="Lienzo del editor" onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }} onDrop={e => { e.preventDefault(); const tipo = e.dataTransfer.getData('application/flowmapper'); if (tipo.startsWith('line:')) { setLineStyle(tipo.slice(5)); setMessage('Estilo de línea seleccionado. Une dos anclajes.'); } if (CATALOG[tipo]) addNode(tipo, screenToFlowPosition({ x: e.clientX, y: e.clientY })); }}>
-        <ReactFlow defaultViewport={recovered?.viewport} onMoveEnd={(_, view) => setViewport(view)} connectionRadius={25} connectionMode={ConnectionMode.Loose} multiSelectionKeyCode={['Control', 'Meta', 'Shift']} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={electricEdgeTypes} colorMode="light" fitView={!recovered?.viewport} fitViewOptions={fitOptions} minZoom={.15} maxZoom={2} snapToGrid snapGrid={[20, 20]} deleteKeyCode={null} onNodesChange={changes => { onNodesChange(changes); if (changes.some(c => c.type === 'position')) setDirty(true); }} onEdgesChange={onEdgesChange} onConnect={connect} isValidConnection={c => !connectionError(c, nodes, edges)} onNodeClick={(_, n) => { canvas.current?.focus({ preventScroll: true }); setSelectedId(n.id); setEdgeId(null); setPanel('inspector'); }} onEdgeClick={(_, edge) => { canvas.current?.focus({ preventScroll: true }); setEdgeId(edge.id); setSelectedId(null); setPanel('inspector'); }} onPaneClick={() => { canvas.current?.focus({ preventScroll: true }); setSelectedId(null); setEdgeId(null); }}>
+        <ReactFlow defaultViewport={recovered?.viewport} connectionRadius={25} connectionMode={ConnectionMode.Loose} multiSelectionKeyCode={['Control', 'Meta', 'Shift']} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={electricEdgeTypes} colorMode="light" fitView={!recovered?.viewport} fitViewOptions={fitOptions} minZoom={.15} maxZoom={2} snapToGrid snapGrid={[20, 20]} deleteKeyCode={null} onNodesChange={changes => { onNodesChange(changes); if (changes.some(c => c.type === 'position')) setDirty(true); }} onEdgesChange={onEdgesChange} onConnect={connect} isValidConnection={c => !connectionError(c, nodes, edges)} onNodeClick={(_, n) => { canvas.current?.focus({ preventScroll: true }); setSelectedId(n.id); setEdgeId(null); setPanel('inspector'); }} onEdgeClick={(_, edge) => { canvas.current?.focus({ preventScroll: true }); setEdgeId(edge.id); setSelectedId(null); setPanel('inspector'); }} onPaneClick={() => { canvas.current?.focus({ preventScroll: true }); setSelectedId(null); setEdgeId(null); }}>
           <Background variant={BackgroundVariant.Lines} gap={20} size={1} color="#e1e6ed" /><Controls /><MiniMap pannable zoomable nodeColor={n => CATALOG[n.data.tipo]?.color || '#aaa'} maskColor="rgba(255,255,255,.75)" />
         </ReactFlow><div className="wf-canvas-caption">Arrastra el fondo · Conecta los puertos</div><div className="wf-fit"><button onClick={() => { setNodes(arrangeNodes(nodes, edges)); setDirty(true); }}>Ordenar</button><button onClick={() => fitView({ ...fitOptions, duration: 250 })}>Ver todo</button></div>
       </main>
       <aside className="wf-inspector">
         {selected ? <>
-          <h2>{CATALOG[selected.data.tipo]?.icon} Configurar nodo</h2><p>{CATALOG[selected.data.tipo]?.label}</p>
+          <h2>{CATALOG[selected.data.tipo]?.icon} Configurar nodo</h2><NodeLink key={selected.id} flowId={form.id} nodeId={selected.id} saved={savedNodeIds.has(selected.id)} /><p>{CATALOG[selected.data.tipo]?.label}</p>
           <Field label={isAnnotation(selected) ? "Texto del comentario" : "Título del nodo"} multiline={isAnnotation(selected)} value={selected.data.titulo} onChange={titulo => changeNode({ titulo })} />{!isAnnotation(selected) && <Field label="Descripción del nodo" value={selected.data.descripcion} onChange={descripcion => changeNode({ descripcion })} multiline />}
           {!isAnnotation(selected) && <label className="wf-field"><span>Forma</span><select aria-label="Forma" value={selected.data.metadata.shape || (['inicio', 'fin'].includes(selected.data.tipo) ? 'oval' : selected.data.tipo === 'decision' ? 'diamond' : selected.data.tipo === 'base-datos' ? 'cylinder' : 'rectangle')} onChange={e => changeMeta({ shape: e.target.value })}><option value="rectangle">Actividad · rectángulo</option><option value="oval">Inicio / fin · óvalo</option><option value="diamond">Decisión · rombo</option><option value="cylinder">Datos · cilindro</option><option value="note">Nota</option><option value="document">Documento</option><option value="subprocess">Subproceso</option><option value="parallelogram">Entrada / salida</option><option value="hexagon">Preparación</option></select></label>}
           {selected.data.tipo === 'decision' && <p className="wf-tip">Primera salida: Sí. Segunda salida: No. La asignación es automática desde cualquier lado; las entradas se cuentan aparte.</p>}
@@ -233,7 +237,7 @@ function Editor({ processes, allFlows = [], teamId, initialGraph, onSave, onClos
         <section className="wf-config-section"><h3>Validación</h3>{!validation.errors.length && !validation.warnings.length && <p className="wf-valid">✓ Estructura válida</p>}{validation.errors.map(error => <p className="wf-error" key={error}>{error}</p>)}{validation.warnings.map(warning => <p className="wf-warning" key={warning}>{warning}</p>)}</section>
       </aside>
     </div>
-    <footer className="wf-footer"><span>Diagrama 2D · Diseño y recorrido manual · RF-CFD-001</span><span className="wf-draft-status" aria-live="polite">{dirty ? 'Cambios pendientes · ' : ''}{draftStatus || 'Autoguardado como Borrador tras 2 min sin actividad'}</span></footer>
+    <footer className="wf-footer"><span>Diagrama 2D · Diseño y recorrido manual · RF-CFD-001</span><span className="wf-draft-status" aria-live="polite">{dirty ? 'Cambios pendientes · ' : ''}{lastSaved ? 'Último guardado: ' + lastSaved : 'Guardado manual · Usa Guardar avance para conservar tu progreso'}</span></footer>
     {saving && <div className="wf-saving" role="status">Guardando el flujo…</div>}
   </div>;
 }

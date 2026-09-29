@@ -15,7 +15,7 @@ Centralizar la documentación de los procesos de los equipos mediante flujos vis
 - Permitir recorrer las rutas de un proceso y navegar hacia otros flujos relacionados.
 - Documentar actividades con descripciones, enlaces y comentarios ubicados dentro del diagrama.
 - Gestionar los estados Borrador, Activo, Validación y Desactivado desde el editor.
-- Reducir la pérdida de progreso mediante borradores locales y autoguardado por inactividad.
+- Guardar avances manualmente sin salir del editor, conservando el flujo y los IDs existentes.
 - Aprovechar Google Sheets como almacenamiento central para disminuir la necesidad de contratar y administrar una base de datos dedicada, aceptando sus limitaciones de rendimiento.
 
 ## Funcionalidades principales
@@ -24,7 +24,7 @@ El editor ofrece una biblioteca de formas, cuadrícula, arrastre, zoom, minimapa
 
 Cada flujo conserva sus nodos, conexiones, posiciones, comentarios y referencias a otros flujos. La biblioteca permite consultar y editar los diagramas; la vista general muestra las relaciones entre los flujos de un equipo. El recorrido permite avanzar por las actividades, elegir una rama y volver a pasos anteriores.
 
-Los borradores se conservan en el navegador. Tras dos minutos de inactividad, el editor intenta guardar los cambios pendientes como Borrador en la biblioteca si el diseño es válido y el backend está disponible. Un borrador local no equivale a una confirmación de guardado en Google Sheets.
+El guardado es manual: **Guardar avance** confirma los cambios en Google Sheets y mantiene abierto el editor. Los siguientes guardados actualizan el mismo flujo, sin duplicarlo ni cambiar su estado. **Guardar flujo / Guardar cambios** guarda y sale. No se crean copias automáticas locales ni remotas; los borradores antiguos siguen disponibles para recuperarlos. Si falla una petición, el diseño permanece abierto para reintentar o exportar JSON. Cada intento manual tiene una confirmación identificada en `meta`; reintentar la misma operación tras perder la respuesta no duplica el flujo. Las escrituras esperan hasta cinco minutos para dar margen a los diagramas grandes; cerrar la pestaña con cambios pendientes muestra una advertencia.
 
 El alcance del aplicativo es diseñar, guardar y recorrer flujos. No ejecuta automáticamente las actividades representadas ni las integraciones descritas en los nodos.
 
@@ -40,7 +40,7 @@ El alcance del aplicativo es diseñar, guardar y recorrer flujos. No ejecuta aut
 | CSS y SVG | Tema visual, figuras y adaptación de la interfaz. |
 | Google Apps Script | API HTTP para consultar, validar y guardar datos. |
 | Google Sheets | Almacenamiento central de equipos, procesos y diagramas. |
-| `localStorage` | Recuperación de borradores en el navegador. |
+| `localStorage` | Lectura de borradores antiguos, sin nuevas escrituras automáticas. |
 | Node.js y npm | Instalación de dependencias y herramientas de desarrollo. |
 | Oxlint, Node Test Runner y Playwright | Revisión de código y pruebas de lógica y navegador. |
 
@@ -170,3 +170,11 @@ Para reducir las esperas, el proyecto lee cada tabla una vez por solicitud, agru
 Estas medidas reducen llamadas, pero **no garantizan que todas las operaciones terminen en menos de cinco segundos**. Ese tiempo es un objetivo que debe medirse en la implementación publicada, con el volumen real de datos y usuarios. La red, la disponibilidad de Google y las esperas por concurrencia también influyen.
 
 La arquitectura resulta adecuada cuando se priorizan una administración sencilla y un costo inicial reducido, y se toleran esperas de lectura. Si el crecimiento exige respuestas estrictamente rápidas, muchas escrituras simultáneas o controles de acceso más detallados, será necesario revisar el almacenamiento y la arquitectura del backend.
+
+### Etiquetas de equipo y enlaces de nodos (1.4.0)
+
+- En **Equipos → Editar** se crea, cambia o elimina una etiqueta como `#Soporte`. Se permite una etiqueta por equipo, con hasta 48 letras, números, guiones o guiones bajos, sin espacios.
+- Los procesos y flujos muestran la etiqueta actual de su equipo. No guardan copias independientes: editarla cambia la herencia inmediatamente.
+- En la biblioteca, `#Soporte` filtra por etiqueta exacta sin distinguir mayúsculas. Se puede combinar con texto, por ejemplo `#Soporte ticket`.
+- Selecciona cualquier nodo en el mapa o el editor para ver su ID y **Copiar URL del nodo**. El enlace `/flujos/{flowId}?nodo={nodeId}` abre, selecciona y centra ese nodo. Los nodos nuevos requieren guardar el avance antes de compartirlos. Los IDs se conservan al editar y volver a guardar.
+- Publica **Code.gs 1.4.0** para usar estas funciones. La etiqueta se almacena en la tabla `meta` bajo `teamTag:{teamId}`, sin añadir columnas ni ejecutar una migración. Las copias de seguridad de migraciones explícitas y la reversión de escrituras fallidas se conservan.

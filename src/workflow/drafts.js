@@ -1,4 +1,3 @@
-export const IDLE_DRAFT_MS = 120000;
 export const draftKey = (endpoint, teamId, flowId) => `flowmapper:draft:v1:${encodeURIComponent(endpoint)}:${teamId}:${flowId || 'new'}`;
 export function draftSnapshot(form, nodes, edges, viewport) {
   return {

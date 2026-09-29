@@ -1,0 +1,6 @@
+.node-link { display: flex; flex-direction: column; gap: 7px; margin: 12px 0; padding: 10px; border: 1px solid #dce4ef; border-radius: 8px; background: #f7f9fc; color: #526177; }
+.node-link code { font-size: 11px; overflow-wrap: anywhere; user-select: all; }
+.node-link label, .node-link p, .node-link [role="status"] { font-size: 11px; }
+.node-link input { width: 100%; min-width: 0; box-sizing: border-box; padding: 6px; margin-top: 4px; border: 1px solid #c8d4e3; border-radius: 4px; background: #fff; color: #344255; font-size: 11px; }
+.node-link [role="status"]:empty { display: none; }
+.map-hint[role="alert"] { pointer-events: auto; z-index: 2; }

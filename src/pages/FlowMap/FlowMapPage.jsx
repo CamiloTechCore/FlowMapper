@@ -1,3 +1,5 @@
+import TeamTag from '../../components/TeamTag';
+import NodeLink from '../../components/NodeLink';
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import FlowBuilder, { WorkflowMap } from '../../components/FlowBuilder';
@@ -19,6 +21,19 @@ export default function FlowMapPage({ flow, onBack }) {
   const nodes = nodesForFlow(flow.id), edges = edgesForFlow(flow.id);
   const loading = isLoading('graph_' + flow.id);
   useEffect(() => { fetchFullFlow(flow.id); }, [flow.id, fetchFullFlow]);
+  useEffect(() => {
+    // React to direct links and browser back/forward within the same flow.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setActiveId(new URLSearchParams(location.search).get('nodo'));
+    setWalking(false); setPath([]); setIndex(0);
+  }, [location.search]);
+  function selectNode(id) {
+    setActiveId(id);
+    const params = new URLSearchParams(location.search);
+    if (id) params.set('nodo', id); else params.delete('nodo');
+    navigate({ pathname: location.pathname, search: params.toString() }, { state: location.state });
+  }
+
   const current = nodes.find(n => n.id === activeId), config = current && CATALOG[current.tipo];
   const semanticEdges = fromGraph({ nodes, edges }).edges.map(e => ({ id: e.id, sourceId: e.source, targetId: e.target, etiqueta: e.label, condicion: e.data.condicion }));
   const outgoing = semanticEdges.filter(e => e.sourceId === activeId);
@@ -48,14 +63,15 @@ export default function FlowMapPage({ flow, onBack }) {
   }
   function jump(i) { setIndex(i); setActiveId(path[i]); }
   return <div className="map-page">
-    <header className="topbar map-topbar"><div className="map-heading"><button className="btn btn-secondary btn-sm" onClick={onBack}>← Biblioteca</button><div><small>{teams.find(t => t.id === flow.teamId)?.nombre} / {processes.find(p => p.id === flow.processId)?.nombre}</small><h1>{flow.nombre}</h1><p>{nodes.length} nodos · {edges.length} conexiones</p></div></div><div className="topbar-actions"><button className="btn btn-secondary btn-sm" onClick={goBack}>← Volver</button><button className="btn btn-primary btn-sm" onClick={continueFlow} disabled={loading || (!referenced && !!current && outgoing.length !== 1) || !activities.length}>Continuar →</button><Link className="btn btn-secondary btn-sm" to={'/vista-general?equipo=' + flow.teamId}>Vista general</Link><Badge variant={flow.estado === 'activo' ? 'green' : 'amber'}>{FLOW_STATES[normalizeStatus(flow.estado)]}</Badge><button className="btn btn-secondary btn-sm" disabled={loading || !nodes.length} onClick={() => { stop(); setEditing(true); }}>Editar flujo</button>{!walking && triggers.length > 1 && <select className="form-select" aria-label="Activador del recorrido" value={triggerId || triggers[0]?.id} onChange={e => setTriggerId(e.target.value)}>{triggers.map(n => <option key={n.id} value={n.id}>{n.titulo}</option>)}</select>}{walking ? <button className="btn btn-secondary btn-sm" onClick={stop}>⏹ Detener</button> : <button className="btn btn-primary btn-sm" disabled={loading || !activities.length} onClick={start}>▶ Recorrer</button>}</div></header>
+    <header className="topbar map-topbar"><div className="map-heading"><button className="btn btn-secondary btn-sm" onClick={onBack}>← Biblioteca</button><div><small>{teams.find(t => t.id === flow.teamId)?.nombre} / {processes.find(p => p.id === flow.processId)?.nombre}</small><h1>{flow.nombre}</h1><TeamTag team={teams.find(t => t.id === flow.teamId)} /><p>{nodes.length} nodos · {edges.length} conexiones</p></div></div><div className="topbar-actions"><button className="btn btn-secondary btn-sm" onClick={goBack}>← Volver</button><button className="btn btn-primary btn-sm" onClick={continueFlow} disabled={loading || (!referenced && !!current && outgoing.length !== 1) || !activities.length}>Continuar →</button><Link className="btn btn-secondary btn-sm" to={'/vista-general?equipo=' + flow.teamId}>Vista general</Link><Badge variant={flow.estado === 'activo' ? 'green' : 'amber'}>{FLOW_STATES[normalizeStatus(flow.estado)]}</Badge><button className="btn btn-secondary btn-sm" disabled={loading || !nodes.length} onClick={() => { stop(); setEditing(true); }}>Editar flujo</button>{!walking && triggers.length > 1 && <select className="form-select" aria-label="Activador del recorrido" value={triggerId || triggers[0]?.id} onChange={e => setTriggerId(e.target.value)}>{triggers.map(n => <option key={n.id} value={n.id}>{n.titulo}</option>)}</select>}{walking ? <button className="btn btn-secondary btn-sm" onClick={stop}>⏹ Detener</button> : <button className="btn btn-primary btn-sm" disabled={loading || !activities.length} onClick={start}>▶ Recorrer</button>}</div></header>
     <div className="map-workspace">
-      <main className="map-canvas-area">{loading && !nodes.length ? <div className="map-loading"><Spinner size={32} /></div> : <WorkflowMap nodes={nodes} edges={edges} activeNodeId={activeId} onNodeClick={node => { if (!walking) setActiveId(node.id); }} />}
+      <main className="map-canvas-area">{loading && !nodes.length ? <div className="map-loading"><Spinner size={32} /></div> : <WorkflowMap nodes={nodes} edges={edges} activeNodeId={activeId} onNodeClick={node => { if (!walking) selectNode(node.id); }} />}
         {!nodes.length && !loading && <div className="map-empty"><p>No se pudo cargar el grafo o no tiene nodos.</p><button className="btn btn-secondary" onClick={() => fetchFullFlow(flow.id)}>Volver a cargar</button></div>}
-        <div className="map-hint">Arrastra para desplazarte · Rueda para zoom · Selecciona un nodo</div>
+        {activeId && !current && !loading && nodes.length > 0 && <div className="map-hint" role="alert">El nodo del enlace ya no existe en este flujo. <button onClick={() => selectNode(null)}>Ver mapa</button></div>}
+        <div className="map-hint" style={activeId && !current ? { top: 55 } : undefined}>Arrastra para desplazarte · Rueda para zoom · Selecciona un nodo</div>
         {walking && <nav className="map-history" aria-label="Pasos del recorrido"><button className="btn btn-secondary btn-xs" disabled={index === 0} onClick={() => jump(index - 1)}>← Paso anterior</button><button className="btn btn-secondary btn-xs" disabled={index >= path.length - 1} onClick={() => jump(index + 1)}>Paso siguiente →</button><div>{path.map((id, i) => <button key={i} className={i === index ? 'is-current' : ''} aria-label={`Volver al paso ${i + 1}: ${nodes.find(n => n.id === id)?.titulo}`} title={nodes.find(n => n.id === id)?.titulo} onClick={() => jump(i)}>{i + 1}</button>)}</div><span>{index + 1}/{path.length}</span></nav>}
       </main>
-      {current && <aside className="map-details" aria-label="Detalle del nodo"><div className="map-details-heading"><span>{config?.icon} {config?.label}</span>{!walking && <button aria-label="Cerrar detalle" onClick={() => setActiveId(null)}>×</button>}</div><h2>{current.titulo}</h2>
+      {current && <aside className="map-details" aria-label="Detalle del nodo"><div className="map-details-heading"><span>{config?.icon} {config?.label}</span>{!walking && <button aria-label="Cerrar detalle" onClick={() => selectNode(null)}>×</button>}</div><h2>{current.titulo}</h2><NodeLink key={current.id} flowId={flow.id} nodeId={current.id} />
         {Object.entries(current.metadata?.config || {}).filter(([, value]) => value !== '').map(([key, value]) => <div className="map-property" key={key}><small>{config?.fields.find(([field]) => field === key)?.[1] || key}</small><p>{String(value)}</p></div>)}
         {(current.metadata?.parameters || []).map(p => <div className="map-property" key={p.id}><small>{p.name}</small><p>{p.value}</p></div>)}
         {(current.metadata?.attachments || []).map(p => <div className="map-property" key={p.id}><small>Adjunto · {p.name}</small><p>{p.value}</p></div>)}
@@ -67,6 +83,6 @@ export default function FlowMapPage({ flow, onBack }) {
         <footer>Recorrido visual manual</footer>
       </aside>}
     </div>
-    {editing && <FlowBuilder processes={processes.filter(p => p.teamId === flow.teamId)} allFlows={flows} teamId={flow.teamId} initialGraph={{ flow, nodes, edges }} onClose={() => setEditing(false)} onSave={async (payload, options) => { const result = await saveFullFlow(payload); if (options?.background) return result; setEditing(false); setActiveId(null); toast.success('Flujo actualizado en la biblioteca'); return result; }} />}
+    {editing && <FlowBuilder processes={processes.filter(p => p.teamId === flow.teamId)} allFlows={flows} teamId={flow.teamId} initialGraph={{ flow, nodes, edges }} onClose={() => setEditing(false)} onSave={async (payload, options) => { const result = await saveFullFlow(payload); if (options?.keepOpen) return result; setEditing(false); setActiveId(null); toast.success('Flujo actualizado en la biblioteca'); return result; }} />}
   </div>;
 }

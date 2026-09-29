@@ -5,7 +5,7 @@
 // ╚══════════════════════════════════════════════════════════════╝
 
 const SPREADSHEET_ID = '12-RXAOuu_sVS479CdrhjBeKO9Tdej-93lhe6gPEnku0';
-const API_VERSION = '1.3.1';
+const API_VERSION = '1.4.0';
 
 const SHEETS = {
   TEAMS:     'equipos',
@@ -182,7 +182,7 @@ function _route(e = {}, allowWrites = false) {
       insertRow:         () => _legacyInsert(p.sheet, p.payload),
       getStats:          () => _getStats(),
       // Equipos
-      getTeams:          () => _rows('equipos'),
+      getTeams:          () => _teamsWithTags(),
       createTeam:        () => _createTeam(p),
       updateTeam:        () => _updateTeam(p),
       deleteTeam:        () => _delete('equipos', p.id),
@@ -230,11 +230,11 @@ function _route(e = {}, allowWrites = false) {
 // ══════════════════════════════════════════════════════════════════
 let _requestStore = null;
 const _ss = () => _requestStore
-  ? (_requestStore.spreadsheet ||= SpreadsheetApp.openById(SPREADSHEET_ID))
+  ? (_requestStore.spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID))
   : SpreadsheetApp.openById(SPREADSHEET_ID);
 function _sheet(name) {
   const key = _canonicalSheet(name);
-  const sheets = _requestStore ? (_requestStore.sheets ||= _ss().getSheets()) : _ss().getSheets();
+  const sheets = _requestStore ? (_requestStore.sheets = _ss().getSheets()) : _ss().getSheets();
   const matches = sheets.filter(s => s.getName().trim().toLowerCase() === key);
   if (matches.length > 1) throw new Error('Hojas ambiguas para ' + key);
   if (!matches.length) throw new Error('Hoja "' + name + '" no existe. Ejecuta crearBaseDeDatos()');
@@ -380,6 +380,7 @@ function _delete(name, id) {
     _deleteWhere('nodos', n => n.flowId === id);
   }
   if (name === 'nodos') _deleteWhere('conexiones', e => e.sourceId === id || e.targetId === id);
+  if (name === 'equipos') _deleteWhere('meta', record => record.clave === _tagKey(id));
   _deleteWhere(name, record => String(record.id) === String(id));
   return { deleted: id };
 }
@@ -407,18 +408,34 @@ function _parseMeta(n) {
 // ══════════════════════════════════════════════════════════════════
 //  CRUD EQUIPOS
 // ══════════════════════════════════════════════════════════════════
+// Team labels live in the existing meta table; no schema migration or backup is needed.
+function _tagKey(id) { return 'teamTag:' + id; }
+function _teamTag(id) { return _rows('meta').find(row => row.clave === _tagKey(id))?.valor || ''; }
+function _saveTeamTag(id, value) {
+  const tag = String(value || '').trim().replace(/^#\{(.*)\}$/, '$1').replace(/^#+/, '');
+  if (tag && !/^[\p{L}\p{N}_-]{1,48}$/u.test(tag)) throw new Error('Etiqueta inválida: usa hasta 48 letras, números, guiones o guiones bajos, sin espacios');
+  const normalized = tag ? '#' + tag : '';
+  _upsertMeta(_tagKey(id), normalized);
+  return normalized;
+}
+function _teamsWithTags() {
+  const tags = new Map(_rows('meta').map(row => [row.clave, row.valor]));
+  return _rows('equipos').map(team => ({ ...team, etiqueta: tags.get(_tagKey(team.id)) || '' }));
+}
 function _createTeam(d) {
   const id=_newId('equipos', d), ts=_now();
   const row=[id, d.nombre||'Nuevo Equipo', d.descripcion||'', d.color||'#c084fc', d.icono||'👥', d.creadoEn||ts, d.actualizadoEn||ts];
   _appendMapped('equipos', row);
-  return _rObj(HEADERS.equipos, row);
+  const etiqueta = d.etiqueta === undefined ? '' : _saveTeamTag(id, d.etiqueta);
+  return { ..._rObj(HEADERS.equipos, row), etiqueta };
 }
 function _updateTeam(d) {
   const ri=_findRow('equipos',d.id); if(ri<0) throw new Error('Equipo no encontrado');
   const old=_rows('equipos').find(r=>r.id===d.id), ts=_now();
   const row=[d.id, d.nombre??old.nombre, d.descripcion??old.descripcion, d.color??old.color, d.icono??old.icono, old.creadoEn, ts];
   _updateMapped('equipos', ri, row);
-  return _rObj(HEADERS.equipos, row);
+  const etiqueta = d.etiqueta === undefined ? _teamTag(d.id) : _saveTeamTag(d.id, d.etiqueta);
+  return { ..._rObj(HEADERS.equipos, row), etiqueta };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -522,6 +539,16 @@ function _validateAnchorCapacity(edge, existing, source, target) {
 function _saveFullFlow(data) {
   const { flow, nodes, edges } = data;
   if (!flow || !String(flow.nombre || '').trim()) throw new Error('Nombre de flujo requerido');
+  // A repeated request after a lost response must not create another flow.
+  const requestId = flow.saveRequestId;
+  if (requestId && !/^[a-zA-Z0-9-]{1,80}$/.test(requestId)) throw new Error('Identificador de guardado inválido');
+  const receiptKey = requestId ? 'flowSave:' + requestId : '';
+  const receipt = receiptKey && _rows('meta').find(row => row.clave === receiptKey);
+  if (receipt) {
+    const saved = JSON.parse(receipt.valor), graph = _getFullFlow(saved.flowId);
+    if (graph.flow.actualizadoEn !== saved.actualizadoEn) throw new Error('El flujo cambió después de este guardado. Vuelve a abrirlo antes de guardar.');
+    return graph;
+  }
   if (!Array.isArray(nodes) || !nodes.length || !Array.isArray(edges)) throw new Error('Grafo inválido');
   const keys = nodes.map(n => String(n._tempId));
   if (nodes.some(n => n._tempId == null) || new Set(keys).size !== keys.length) throw new Error('IDs temporales inválidos o duplicados');
@@ -562,6 +589,7 @@ function _saveFullFlow(data) {
     _deleteWhere('nodos', n => n.flowId === flow.id && !keepNodes.has(n.id));
   }
   const resultFlow = old ? _updateFlow(flow) : savedFlow;
+  if (receiptKey) _upsertMeta(receiptKey, JSON.stringify({ flowId: resultFlow.id, actualizadoEn: resultFlow.actualizadoEn }));
   return { flow: resultFlow, nodes: savedNodes, edges: savedEdges };
 }
 

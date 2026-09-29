@@ -41,7 +41,7 @@ async function send(action, payload = {}) {
       response = await fetch(BASE_URL, {
         method: 'POST',
         redirect: 'follow',
-        signal: AbortSignal.timeout(60000),
+        signal: AbortSignal.timeout(300000),
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify({ action, ...payload }),
       });
@@ -65,8 +65,8 @@ function ensureCompatible() {
   if (!compatibility) {
     compatibility = call('ping').then(info => {
       const [major, minor] = String(info.version || '').split('.').map(Number);
-      if (!(major > 1 || (major === 1 && minor >= 3))) {
-        throw new Error('Actualiza Code.gs a la versión 1.3.0 o posterior y publica una nueva versión de la implementación. Puedes exportar este diseño mientras tanto.');
+      if (!(major > 1 || (major === 1 && minor >= 4))) {
+        throw new Error('Actualiza Code.gs a la versión 1.4.0 o posterior y publica una nueva versión de la implementación. Puedes exportar este diseño mientras tanto.');
       }
     }).catch(error => { compatibility = null; throw error; });
   }
@@ -85,8 +85,8 @@ const api = {
 
   // Equipos
   getTeams:         ()               => call('getTeams'),
-  createTeam:       (d)              => call('createTeam',     d),
-  updateTeam:       (d)              => call('updateTeam',     d),
+  createTeam:       async (d)        => { await ensureCompatible(); return call('createTeam', d); },
+  updateTeam:       async (d)        => { await ensureCompatible(); return call('updateTeam', d); },
   deleteTeam:       (id)             => call('deleteTeam',     { id }),
 
   // Procesos
