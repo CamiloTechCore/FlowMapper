@@ -6,6 +6,7 @@ import './index.css'
 import './styles/integration.css'
 import App from './AppShell.jsx'
 import './styles/white-theme.css'
+import './styles/point-background.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

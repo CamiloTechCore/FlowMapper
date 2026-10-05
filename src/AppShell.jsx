@@ -10,6 +10,10 @@ import TeamDetailPage from './pages/Teams/TeamDetailPage';
 import FlowMapPage from './pages/FlowMap/FlowMapPage';
 import TeamOverviewPage from './pages/FlowMap/TeamOverviewPage';
 import { GAS_URL } from './services/config';
+import { AuthProvider, LoginPage, useAuth } from './context/AuthContext';
+import UsersPage from './pages/UsersPage';
+import Point from './components/point';
+import './styles/segments.css';
 
 function TeamRoute() {
   const { teamId } = useParams();
@@ -32,20 +36,22 @@ function FlowRoute() {
 }
 
 function Shell() {
-  const { fetchTeams, fetchAllFlows, fetchAllProcesses, teams, error } = useData();
+  const { fetchTeams, fetchAllFlows, fetchAllProcesses, fetchFolders, teams, error } = useData();
+  const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const page = pathname.startsWith('/equipos') ? 'teams' : pathname === '/vista-general' ? 'overview' : 'gallery';
   const selectedTeam = teams.find(t => pathname === '/equipos/' + t.id);
-  const reload = () => { fetchTeams(); fetchAllFlows(); fetchAllProcesses(); };
+  const reload = () => { fetchTeams(); fetchAllFlows(); fetchAllProcesses(); fetchFolders(); };
   useEffect(() => {
-    if (GAS_URL) { fetchTeams(); fetchAllFlows(); fetchAllProcesses(); }
-  }, [fetchTeams, fetchAllFlows, fetchAllProcesses]);
+    if (GAS_URL) { fetchTeams(); fetchAllFlows(); fetchAllProcesses(); fetchFolders(); }
+  }, [fetchTeams, fetchAllFlows, fetchAllProcesses, fetchFolders]);
   return <div className="app-shell">
     {!pathname.startsWith('/flujos/') && <Sidebar page={page} selectedTeam={selectedTeam}
       onNav={p => navigate({ gallery: '/', teams: '/equipos', overview: '/vista-general' }[p])}
       onSelectTeam={t => { if (t) navigate('/equipos/' + t.id); }} />}
     <main className="main-area">
+      <div className="session-bar"><span>{user.nombre} · {isAdmin ? 'Administrador' : 'Solo lectura'}</span>{isAdmin && <button className="btn btn-secondary btn-xs" onClick={() => navigate('/usuarios')}>Usuarios</button>}<button className="btn btn-secondary btn-xs" onClick={() => logout().catch(() => {})}>Cerrar sesión</button></div>
       {(!GAS_URL || error) && <div className="connection-notice" role="alert">
         <span>{error || 'Configura la URL de Google Apps Script para cargar y guardar tus datos.'}</span>
         {GAS_URL && <button className="btn btn-secondary btn-sm" onClick={reload}>Reintentar</button>}
@@ -56,6 +62,7 @@ function Shell() {
         <Route path="/equipos/:teamId" element={<TeamRoute />} />
         <Route path="/flujos/:flowId" element={<FlowRoute />} />
         <Route path="/vista-general" element={<TeamOverviewPage />} />
+        <Route path="/usuarios" element={isAdmin ? <UsersPage /> : <Navigate to="/" replace />} />
         <Route path="/constructor" element={<Navigate to="/equipos" replace />} />
         <Route path="/mapa" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Empty title="Página no encontrada" action={<button className="btn btn-secondary" onClick={() => navigate('/')}>Ir al inicio</button>} />} />
@@ -66,5 +73,9 @@ function Shell() {
 }
 
 export default function AppShell() {
-  return <BrowserRouter><DataProvider><Shell /></DataProvider></BrowserRouter>;
+  return <BrowserRouter><AuthProvider><div className="app-point-shell"><Point scope="application" /><ProtectedApp /></div></AuthProvider></BrowserRouter>;
+}
+function ProtectedApp() {
+  const { user } = useAuth();
+  return user ? <DataProvider key={user.id}><Shell /></DataProvider> : <LoginPage />;
 }

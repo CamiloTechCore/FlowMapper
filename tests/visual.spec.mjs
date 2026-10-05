@@ -144,7 +144,7 @@ test('fallo de guardado y backend antiguo conservan el diseño en el editor', as
   await page.getByRole('button', { name: '+ Flujo', exact: true }).click();
   await page.getByLabel('Nombre del flujo', { exact: true }).fill('Conservar borrador');
   await page.getByRole('button', { name: 'Guardar flujo', exact: true }).click();
-  await expect(page.getByText(/Actualiza Code.gs a la versión 1.4.0/)).toBeVisible();
+  await expect(page.getByText(/Actualiza Code.gs a la versión 1.7.0/)).toBeVisible();
   expect(backend.request('getAllFlows').data).toHaveLength(0);
   old = false; backend.failNextWrite('nodos');
   await page.getByRole('button', { name: 'Guardar flujo', exact: true }).click();

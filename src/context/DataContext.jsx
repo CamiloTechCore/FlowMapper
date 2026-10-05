@@ -5,6 +5,7 @@ const EMPTY = Object.freeze([]);
 // ── Estado inicial ───────────────────────────────────────────────
 const INIT = {
   teams:     [],
+  folders:   [],
   processes: [],
   flows:     [],
   nodes:     {},  // { [flowId]: Node[] }
@@ -23,6 +24,8 @@ function reducer(state, action) {
       return { ...state, error: action.error };
     case 'SET_TEAMS':
       return { ...state, teams: action.data };
+    case 'SET_FOLDERS':
+      return { ...state, folders: action.data };
     case 'SET_PROCESSES':
       return { ...state, processes: action.data };
     case 'SET_FLOWS':
@@ -100,6 +103,7 @@ export function DataProvider({ children }) {
   // ── Equipos ───────────────────────────────────────────────────
   const fetchTeams = useCallback(() =>
     load('teams', api.getTeams, { type: 'SET_TEAMS' }), [load]);
+  const fetchFolders = useCallback(() => load('folders', api.getFolders, { type: 'SET_FOLDERS' }), [load]);
 
   const createTeam = useCallback(async (d) => {
     const data = await api.createTeam(d);
@@ -196,6 +200,7 @@ export function DataProvider({ children }) {
   // ── Context value ─────────────────────────────────────────────
   const value = {
     ...state,
+    fetchFolders,
     // Teams
     fetchTeams, createTeam, updateTeam, deleteTeam,
     // Processes

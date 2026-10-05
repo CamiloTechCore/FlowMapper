@@ -51,7 +51,8 @@ export default function DiagramNode({ id, data, selected, isConnectable }) {
     return () => observer.disconnect();
   }, []);
   useLayoutEffect(() => { updateInternals(id); }, [id, width, height, shape, updateInternals]);
-  return <div className={`diagram-node ${selected ? 'is-selected' : ''}`} style={{ width, height }} data-shape={shape} tabIndex={0} aria-describedby={!annotation && data.descripcion ? `description-${id}` : undefined} onMouseEnter={showDescription} onMouseLeave={hideDescription} onFocus={showDescription} onBlur={hideDescription} onPointerDownCapture={() => setTooltip(null)}>
+  return <div className={`diagram-node ${selected ? 'is-selected' : ''}`} style={{ width, height, ...(data.segment ? { '--segment-color': data.segment.color, '--segment-fill': data.segment.color + '18' } : {}) }} data-segment={data.segment?.id} data-shape={shape} tabIndex={0} aria-describedby={!annotation && data.descripcion ? `description-${id}` : undefined} onMouseEnter={showDescription} onMouseLeave={hideDescription} onFocus={showDescription} onBlur={hideDescription} onPointerDownCapture={() => setTooltip(null)}>
+    {data.segment && <span className="diagram-segment-label">{data.segment.nombre}</span>}
     {!annotation && <ShapeGlyph shape={shape} width={width} height={height} />}
     <div className="diagram-copy" ref={text} style={{ width: copyWidth }}><strong>{data.titulo}</strong></div>
     {!annotation && data.descripcion && tooltip && createPortal(<div id={`description-${id}`} className="diagram-tooltip" role="tooltip" style={tooltip} onMouseEnter={() => clearTimeout(hideTimer.current)} onMouseLeave={hideDescription}>{data.descripcion}</div>, document.body)}

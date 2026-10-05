@@ -1,4 +1,7 @@
 export async function mockBackend(page, backend, intercept) {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('flowmapper.session')) sessionStorage.setItem('flowmapper.session', JSON.stringify({ sessionToken: 'test-session', expiresAt: Date.now() + 3600000, user: { id: 'test-admin', nombre: 'Administrador de prueba', rol: 'administrador' } }));
+  });
   await page.route('https://script.google.com/**', async route => {
     const request = route.request();
     const { action, ...data } = request.method() === 'POST' ? request.postDataJSON() : Object.fromEntries(new URL(request.url()).searchParams);

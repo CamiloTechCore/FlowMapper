@@ -1,21 +1,24 @@
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash, createHmac } from 'node:crypto';
 
 // Simula únicamente servicios de GAS. Ejecuta el Code.gs real sin tocar Google Sheets.
-export function createBackend({ sheets = {}, initialize = true, source } = {}) {
+export function createBackend({ sheets = {}, initialize = true, source, bypassAuth = true, configureAdmin = true, properties = { ADMIN_EMAIL: 'admin@example.test', ADMIN_PASSWORD: 'test-password' } } = {}) {
   const tables = new Map(Object.entries(sheets).map(([name, rows]) => [name, structuredClone(rows)]));
   const events = [];
   const metrics = { reads: 0, writes: 0, deletes: 0, opens: 0, formulas: 0 };
   let failure = null;
   let copyFailure = false;
   let locked = false;
+  const cache = new Map();
+  const triggers = [];
   function sheet(name) {
     if (!tables.has(name)) return null;
     const rows = tables.get(name);
     let maxColumns = Math.max(26, ...rows.map(row => row.length));
     const current = {
       getName: () => name,
+      getParent: () => spreadsheet,
       setName(next) { if (tables.has(next)) throw new Error('Hoja duplicada'); tables.delete(name); name = next; tables.set(name, rows); return current; },
       getLastRow: () => rows.length,
       getLastColumn: () => Math.max(0, ...rows.map(row => row.length)),
@@ -36,6 +39,7 @@ export function createBackend({ sheets = {}, initialize = true, source } = {}) {
       deleteRow: index => { metrics.deletes++; return rows.splice(index - 1, 1); },
       getRange(row, column, height = 1, width = 1) {
         const range = {
+          getSheet: () => current, getRow: () => row, getColumn: () => column, getNumColumns: () => width, getLastRow: () => row + height - 1,
           getValues: () => { metrics.reads++; return Array.from({ length: height }, (_, i) => Array.from({ length: width }, (_, j) => rows[row - 1 + i]?.[column - 1 + j] ?? '')); },
           getFormulas: () => { metrics.formulas++; return Array.from({ length: height }, (_, i) => Array.from({ length: width }, (_, j) => { const value = rows[row - 1 + i]?.[column - 1 + j]; return typeof value === 'string' && value.startsWith('=') ? value : ''; })); },
           setValues(values) {
@@ -53,22 +57,38 @@ export function createBackend({ sheets = {}, initialize = true, source } = {}) {
     };
     return current;
   }
-  const spreadsheet = { getSheetByName: sheet, getSheets: () => [...tables.keys()].map(sheet), insertSheet(name) { if (tables.has(name)) throw new Error('Hoja duplicada'); tables.set(name, []); return sheet(name); } };
+  const spreadsheet = { getId: () => vm.runInContext('SPREADSHEET_ID', context), getSheetByName: sheet, getSheets: () => [...tables.keys()].map(sheet), insertSheet(name) { if (tables.has(name)) throw new Error('Hoja duplicada'); tables.set(name, []); return sheet(name); } };
   const context = vm.createContext({
+    ScriptApp: { getProjectTriggers: () => triggers, newTrigger(handler) {
+      let source;
+      const builder = { forSpreadsheet(id) { source = id; return builder; }, onEdit: () => builder, create() {
+        triggers.push({ getHandlerFunction: () => handler, getTriggerSourceId: () => source });
+      } }; return builder;
+    } },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: key => properties[key] || null, setProperty: (key, value) => { properties[key] = value; }, deleteProperty: key => { delete properties[key]; } }) },
+    CacheService: { getScriptCache: () => ({ get: key => cache.get(key) || null, put: (key, value) => cache.set(key, value), remove: key => cache.delete(key) }) },
     SpreadsheetApp: { openById: () => { metrics.opens++; return spreadsheet; }, flush: () => events.push({ type: 'flush' }) },
-    Utilities: { getUuid: randomUUID }, Logger: { log() {} },
+    Utilities: { getUuid: randomUUID, Charset: { UTF_8: 'utf8' }, DigestAlgorithm: { SHA_256: 'sha256' },
+      computeDigest: (algorithm, value) => [...createHash(algorithm).update(Array.isArray(value) ? Buffer.from(value) : value).digest()].map(b => b > 127 ? b - 256 : b),
+      computeHmacSha256Signature: (value, key) => [...createHmac('sha256', Array.isArray(key) ? Buffer.from(key) : key).update(Array.isArray(value) ? Buffer.from(value) : value).digest()].map(b => b > 127 ? b - 256 : b),
+      newBlob: value => ({ getBytes: () => [...Buffer.from(value)].map(b => b > 127 ? b - 256 : b) }),
+      base64Encode: value => Buffer.from(value).toString('base64') }, Logger: { log() {} },
     LockService: { getScriptLock: () => ({ waitLock() { if (locked) throw new Error('Bloqueo recursivo'); locked = true; events.push({ type: 'lock' }); }, hasLock: () => locked, releaseLock() { locked = false; events.push({ type: 'unlock' }); } }) },
     ContentService: { MimeType: { JSON: 'application/json' }, createTextOutput() {
       return { value: '', setMimeType() { return this; }, setContent(value) { this.value = value; return this; } };
     } },
   });
   vm.runInContext(source || readFileSync(new URL('../Code.gs', import.meta.url), 'utf8'), context);
+  // Las pruebas antiguas de grafos aíslan autenticación. Las pruebas de acceso
+  // desactivan este stub y ejecutan _authorize y _login reales.
+  if (bypassAuth) vm.runInContext(`_authorize = () => ({ id: 'test-admin', nombre: 'Administrador de prueba', rol: 'administrador', activo: true });`, context);
   if (initialize) context.crearBaseDeDatos();
+  if (initialize && !bypassAuth && configureAdmin) context.configurarAdministrador();
   function request(action, payload = {}, method = /^(get|ping)/.test(action) ? 'GET' : 'POST') {
     const event = method === 'GET' ? { parameter: { action, ...payload } } : { postData: { contents: JSON.stringify({ action, ...payload }) } };
     return JSON.parse(context[method === 'GET' ? 'doGet' : 'doPost'](event).value);
   }
-  return { request, tables, events, metrics, resetMetrics: () => Object.keys(metrics).forEach(key => { metrics[key] = 0; }), runSetup: () => context.setupSpreadsheet(), diagnose: () => context.validarBaseDeDatos(),
+  return { request, tables, events, metrics, cache, triggers, installUsersTrigger: () => context.instalarTriggerUsuarios(), configureAdministrator: () => context.configurarAdministrador(), processPasswords: () => context.procesarContraseñasTemporales(), editUsers: (row, column, height = 1, width = 1) => context.alEditarUsuarios({ range: sheet('usuarios').getRange(row, column, height, width) }), derivePassword: (password, salt, iterations, pepper = false) => context._passwordHash(password, salt, iterations, pepper), properties, resetMetrics: () => Object.keys(metrics).forEach(key => { metrics[key] = 0; }), runSetup: () => context.setupSpreadsheet(), diagnose: () => context.validarBaseDeDatos(),
     failNextWrite: name => { failure = name; }, failNextCopy: () => { copyFailure = true; } };
 }
 

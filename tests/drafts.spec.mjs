@@ -11,7 +11,7 @@ async function openEditor(page,team) {
 test('sin autoguardado ni backup local; guardar avances sobreescribe el mismo flujo sin salir',async({page})=>{
   const backend=createBackend(),{team}=seedHierarchy(backend);
   await page.clock.install();
-  await page.addInitScript(() => { Storage.prototype.setItem = () => { throw new Error('Backup local no disponible'); }; });
+  await page.addInitScript(() => { const original = Storage.prototype.setItem; Storage.prototype.setItem = function (...args) { if (this === localStorage) throw new Error('Backup local no disponible'); return original.apply(this, args); }; });
   let saves=0;
   await mockBackend(page,backend,action=>{if(action==='saveFullFlow') saves++;});
   await openEditor(page,team);

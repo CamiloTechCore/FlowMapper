@@ -1,3 +1,4 @@
+import { useAuth } from '../../context/AuthContext';
 import TeamTag from '../../components/TeamTag';
 import { FLOW_STATES, normalizeStatus } from '../../workflow/model';
 import React, { useState } from 'react';
@@ -7,15 +8,17 @@ import FlowBuilder from '../../components/FlowBuilder';
 import { toast } from '../../hooks/useToast';
 
 export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
+  const { isAdmin } = useAuth();
   const {
     processes, flows, nodes,
-    createProcess, deleteProcess,
+    createProcess, updateProcess, deleteProcess,
     saveFullFlow, deleteFlow,
   } = useData();
 
   const [showProcModal,  setShowProcModal]  = useState(false);
   const [showFlowModal,  setShowFlowModal]  = useState(false);
   const [procForm,       setProcForm]       = useState({ nombre: '', descripcion: '' });
+  const [editingProcess, setEditingProcess] = useState(null);
   const [saving,         setSaving]         = useState(false);
 
   const teamProcesses = processes.filter(p => p.teamId === team.id);
@@ -25,8 +28,10 @@ export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
     if (!procForm.nombre.trim()) { toast.error('Escribe un nombre para el proceso'); return; }
     setSaving(true);
     try {
-      await createProcess({ ...procForm, teamId: team.id, orden: teamProcesses.length + 1 });
-      toast.success('Proceso creado ✓');
+      if (editingProcess) await updateProcess({ ...procForm, id: editingProcess });
+      else await createProcess({ ...procForm, teamId: team.id, orden: teamProcesses.length + 1 });
+      toast.success(editingProcess ? 'Proceso actualizado ✓' : 'Proceso creado ✓');
+      setEditingProcess(null);
       setShowProcModal(false);
       setProcForm({ nombre: '', descripcion: '' });
     } catch (err) {
@@ -62,10 +67,10 @@ export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
             <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{teamProcesses.length} procesos · {teamFlows.length} flujos</div><TeamTag team={team} />
           </div>
         </div>
-        <div className="topbar-actions">
-          <button className="btn btn-secondary" onClick={() => setShowProcModal(true)}>+ Proceso</button>
+        {isAdmin && <div className="topbar-actions">
+          <button className="btn btn-secondary" onClick={() => { setEditingProcess(null); setProcForm({ nombre: '', descripcion: '' }); setShowProcModal(true); }}>+ Proceso</button>
           <button className="btn btn-primary"   onClick={() => setShowFlowModal(true)} disabled={!teamProcesses.length}>+ Flujo</button>
-        </div>
+        </div>}
       </div>
 
       {/* Content: two-column layout */}
@@ -93,12 +98,12 @@ export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
                   <TeamTag team={team} />
                   {proc.descripcion && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3, lineHeight: 1.4 }}>{proc.descripcion}</div>}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-                    <Badge variant="cyan">{count} flujo{count !== 1 ? 's' : ''}</Badge>
-                    <button
+                    <Badge variant="cyan">{count} flujo{count !== 1 ? 's' : ''}</Badge>{isAdmin && <button className="btn btn-secondary btn-xs" aria-label={`Editar proceso ${proc.nombre}`} onClick={() => { setEditingProcess(proc.id); setProcForm({ nombre: proc.nombre, descripcion: proc.descripcion }); setShowProcModal(true); }}>Editar</button>}
+                    {isAdmin && <button
                       className="btn btn-danger btn-xs"
                       aria-label={`Eliminar proceso ${proc.nombre}`}
                       onClick={() => { if (window.confirm('¿Eliminar el proceso? Debe estar sin flujos.')) deleteProcess(proc.id).then(() => toast.info('Proceso eliminado')).catch(err => toast.error(err.message)); }}
-                    >🗑</button>
+                    >🗑</button>}
                   </div>
                 </div>
               );
@@ -145,12 +150,12 @@ export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
                       </Badge>
                       <Badge variant="purple">{nodes[flow.id] ? fNodes.length : '—'} nodos</Badge>
                       <Badge variant="gray">v{flow.version}</Badge>
-                      <button
+                      {isAdmin && <button
                         className="btn btn-danger btn-xs"
                         style={{ marginLeft: 'auto' }}
                         aria-label={`Eliminar flujo ${flow.nombre}`}
                         onClick={e => { e.stopPropagation(); if (window.confirm('¿Eliminar el flujo y todos sus nodos y conexiones?')) deleteFlow(flow.id).then(() => toast.info('Flujo eliminado')).catch(err => toast.error(err.message)); }}
-                      >🗑</button>
+                      >🗑</button>}
                     </div>
                   </div>
                 );
@@ -161,8 +166,8 @@ export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
       </div>
 
       {/* Process modal */}
-      {showProcModal && (
-        <Modal title="📋 Nuevo Proceso" onClose={() => setShowProcModal(false)}>
+      {isAdmin && showProcModal && (
+        <Modal title={editingProcess ? 'Editar proceso' : '📋 Nuevo Proceso'} onClose={() => setShowProcModal(false)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div className="form-group">
               <label className="form-label">Nombre</label>
@@ -187,14 +192,14 @@ export default function TeamDetailPage({ team, onBack, onOpenFlow }) {
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={() => setShowProcModal(false)}>Cancelar</button>
             <button className="btn btn-primary" onClick={handleCreateProcess} disabled={saving}>
-              {saving ? '⏳...' : '✓ Crear Proceso'}
+              {saving ? '⏳...' : editingProcess ? 'Guardar proceso' : '✓ Crear Proceso'}
             </button>
           </div>
         </Modal>
       )}
 
       {/* Flow builder modal */}
-      {showFlowModal && (
+      {isAdmin && showFlowModal && (
         <FlowBuilder
           processes={teamProcesses}
           allFlows={flows}

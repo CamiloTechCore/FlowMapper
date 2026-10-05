@@ -5,6 +5,8 @@
 
 import { GAS_URL as BASE_URL } from './config';
 import { createRequestStore } from './requestStore';
+let sessionToken = '';
+export function setSessionToken(token) { sessionToken = token || ''; invalidate(); compatibility = null; }
 
 if (!BASE_URL) {
   console.warn(
@@ -26,7 +28,8 @@ async function send(action, payload = {}) {
     );
   }
 
-  const isRead = /^(get|ping|getStats)/.test(action);
+  // El token siempre viaja en el cuerpo, nunca en la URL.
+  const isRead = action === 'ping';
 
   let response;
   try {
@@ -43,7 +46,7 @@ async function send(action, payload = {}) {
         redirect: 'follow',
         signal: AbortSignal.timeout(300000),
         headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action, ...payload }),
+        body: JSON.stringify({ action, ...payload, sessionToken }),
       });
     }
   } catch (err) {
@@ -55,18 +58,21 @@ async function send(action, payload = {}) {
   let json;
   try { json = await response.json(); }
   catch { throw new Error('GAS no devolvió JSON. Revisa la URL /exec y los permisos de la implementación.'); }
-  if (!json.success) throw new Error(json.error || json.message || 'Error desconocido del servidor GAS');
+  if (!json.success) {
+    if (String(json.error).startsWith('UNAUTHORIZED:')) window.dispatchEvent(new Event('flowmapper-session-expired'));
+    throw new Error(json.error || json.message || 'Error desconocido del servidor GAS');
+  }
   return json.data;
 }
 
-const { call } = createRequestStore(send);
+const { call, invalidate } = createRequestStore(send);
 let compatibility;
 function ensureCompatible() {
   if (!compatibility) {
     compatibility = call('ping').then(info => {
       const [major, minor] = String(info.version || '').split('.').map(Number);
-      if (!(major > 1 || (major === 1 && minor >= 4))) {
-        throw new Error('Actualiza Code.gs a la versión 1.4.0 o posterior y publica una nueva versión de la implementación. Puedes exportar este diseño mientras tanto.');
+      if (!(major > 1 || (major === 1 && minor >= 7))) {
+        throw new Error('Actualiza Code.gs a la versión 1.7.0 o posterior y publica una nueva versión de la implementación. Puedes exportar este diseño mientras tanto.');
       }
     }).catch(error => { compatibility = null; throw error; });
   }
@@ -76,6 +82,14 @@ function ensureCompatible() {
 // ── API pública ──────────────────────────────────────────────────
 const api = {
   ensureCompatible,
+  login: async (correo, password) => { await ensureCompatible(); return call('login', { correo, password }); },
+  logout: () => call('logout'),
+  getSession: () => call('getSession'),
+  getUsers: () => call('getUsers'),
+  saveReader: d => call('saveReader', d),
+  getFolders: () => call('getFolders'),
+  saveFolder: d => call('saveFolder', d),
+  deleteFolder: id => call('deleteFolder', { id }),
   // Sistema
   ping:             ()               => call('ping'),
   setup:            ()               => call('setup'),

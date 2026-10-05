@@ -1,16 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { createBackend, seedHierarchy, graphPayload } from './gas-harness.mjs';
-import { addNode, connect } from './editor-helpers.mjs';
-
-async function mockBackend(page, backend) {
-  // Intercepta cada llamada GAS antes de salir del navegador; nunca escribe en la URL real.
-  await page.route('https://script.google.com/**', async route => {
-    const request = route.request();
-    const payload = request.method() === 'POST' ? request.postDataJSON() : Object.fromEntries(new URL(request.url()).searchParams);
-    const { action, ...data } = payload;
-    await route.fulfill({ json: backend.request(action, data, request.method()) });
-  });
-}
+import { addNode, connect, mockBackend } from './editor-helpers.mjs';
 
 test('crear equipo, proceso y flujo; recorrerlo y recuperarlo tras recargar', async ({ page }) => {
   const backend = createBackend(), errors = [];
@@ -53,7 +43,7 @@ test('las ramas de decisión recorren destinos distintos y la galería filtra', 
   const backend = createBackend(), { team, process } = seedHierarchy(backend);
   const graph = backend.request('saveFullFlow', graphPayload(team, process)).data;
   await mockBackend(page, backend); await page.goto('/');
-  await expect(page.getByText('Resolver ticket', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Resolver ticket', exact: true })).toBeVisible();
   await page.getByLabel('Buscar en biblioteca').fill('inexistente');
   await expect(page.getByText('No hay flujos', { exact: true })).toBeVisible();
   await page.goto('/flujos/' + graph.flow.id);
@@ -66,6 +56,9 @@ test('las ramas de decisión recorren destinos distintos y la galería filtra', 
 test('un backend HTML muestra error comprensible y no conexión exitosa', async ({ page }) => {
   await page.route('https://script.google.com/**', route => route.fulfill({ contentType: 'text/html', body: '<html>Login</html>' }));
   await page.goto('/');
+  await page.getByLabel('Correo', { exact: true }).fill('admin@example.test');
+  await page.getByLabel('Contraseña', { exact: true }).fill('test-password');
+  await page.getByRole('button', { name: 'Iniciar sesión', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('GAS no devolvió JSON');
   await expect(page.getByRole('button', { name: 'Configuración', exact: true })).toHaveCount(0);
   await expect(page.getByText('● GAS Conectado', { exact: true })).toHaveCount(0);

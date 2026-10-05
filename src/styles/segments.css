@@ -1,0 +1,19 @@
+.login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #f5f7fb; }
+.login-card { width: min(420px, 100%); display: flex; flex-direction: column; gap: 18px; padding: 32px; }
+.login-card h1 { margin: 0; } .login-card small { color: #64748b; }
+.session-bar { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 7px 20px; background: #fff; border-bottom: 1px solid #e2e8f0; font-size: 12px; flex-shrink: 0; }
+.folder-heading, .folder-form { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; } .folder-heading h2 { font-size: 16px; margin-right: auto; }
+.folder-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 12px 0 20px; }
+.folder-card { padding: 16px; } .folder-card details { padding-left: 12px; margin: 10px 0; } .folder-card summary { cursor: pointer; font-weight: 600; } .folder-card .btn { margin: 8px 4px 4px 0; }
+.users-form { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; padding: 20px; margin: 20px 0; }
+.segment-legend { display: flex; gap: 16px; flex-wrap: wrap; padding: 10px 20px; background: #fff; border-bottom: 1px solid #e2e8f0; font-size: 12px; flex-shrink: 0; }
+.segment-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.segment-legend i, .segment-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
+.quality-summary { padding: 8px 20px; background: #f8fafc; font-size: 12px; max-height: 220px; overflow: auto; flex-shrink: 0; }
+.quality-summary summary { cursor: pointer; } .quality-summary table { border-collapse: collapse; width: 100%; } .quality-summary th, .quality-summary td { padding: 6px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+.diagram-node[data-segment] > .diagram-shape > * { stroke: var(--segment-color); fill: var(--segment-fill); }
+.diagram-segment-label { position: absolute; left: 50%; bottom: -22px; transform: translateX(-50%); font-size: 11px; white-space: nowrap; color: #334155; background: #fff; padding: 2px 8px; border-radius: 5px; border-left: 4px solid var(--segment-color); }
+.wf-inspector details { margin: 8px 0; } .wf-inspector details summary { cursor: pointer; }
+.segment-transition-label { position: absolute; width: 180px; padding: 6px 8px; border: 1px solid; border-radius: 6px; background: #fff; color: #475569; font: 10px/1.4 system-ui; pointer-events: all; overflow-wrap: anywhere; }
+.segment-transition-label span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 3px; }
+.segment-transition-label:focus span, .segment-transition-label:hover span { display: block; }

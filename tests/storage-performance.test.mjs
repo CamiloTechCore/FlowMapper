@@ -21,7 +21,7 @@ test('100 nodos: operaciones de Sheets por tabla, no por nodo ni por campo', () 
   const graph = created.data;
   backend.resetMetrics();
   assert.deepEqual(backend.request('getFullFlow', { flowId: graph.flow.id }).data, graph);
-  assert.equal(backend.metrics.reads, 3);
+  assert.equal(backend.metrics.reads, 4);
   assert.equal(backend.metrics.opens, 1);
   backend.resetMetrics();
   const edited = backend.request('saveFullFlow', {
@@ -30,11 +30,11 @@ test('100 nodos: operaciones de Sheets por tabla, no por nodo ni por campo', () 
     edges: graph.edges.map(edge => ({ ...edge, _tempId: edge.id, etiqueta: 'Continuar' })),
   });
   assert.equal(edited.success, true, edited.error);
-  assert.equal(backend.metrics.reads, 3);
+  assert.equal(backend.metrics.reads, 4);
   assert.equal(backend.metrics.writes, 3);
   backend.resetMetrics();
   assert.equal(backend.request('deleteFlow', { id: graph.flow.id }).success, true);
-  assert.equal(backend.metrics.reads, 3);
+  assert.equal(backend.metrics.reads, 4);
   assert.equal(backend.metrics.writes, 3);
   assert.equal(backend.metrics.deletes, 0);
   assert.equal(backend.request('getAllFlows').data.length, 0);

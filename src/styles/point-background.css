@@ -1,0 +1,10 @@
+.app-point-shell { position: relative; isolation: isolate; height: 100%; background: #fff; }
+.app-point-shell > .point-background { position: fixed; z-index: 0; }
+.app-point-shell > .app-shell, .app-point-shell > .login-page { position: relative; z-index: 1; }
+.app-point-shell .main-area, .app-point-shell .login-page { background: transparent; }
+.app-point-shell .sidebar { background: rgb(255 255 255 / 94%); }
+[data-point-surface="canvas"] { isolation: isolate; background: #fff; }
+[data-point-surface="canvas"] > .point-background { z-index: 0; }
+[data-point-surface="canvas"] > .react-flow { z-index: 1; background: transparent; --xy-background-color: transparent; }
+[data-point-surface="canvas"] > .wf-fit, [data-point-surface="canvas"] > .wf-canvas-caption { z-index: 2; }
+[data-point-surface="canvas"] > .overview-empty { position: relative; z-index: 2; background: rgb(255 255 255 / 80%); }

@@ -5,7 +5,10 @@
 // ╚══════════════════════════════════════════════════════════════╝
 
 const SPREADSHEET_ID = '12-RXAOuu_sVS479CdrhjBeKO9Tdej-93lhe6gPEnku0';
-const API_VERSION = '1.4.0';
+const API_VERSION = '1.7.0';
+const PASSWORD_ITERATIONS = 600000;
+const SHA256_INITIAL = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+const SHA256_K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
 
 const SHEETS = {
   TEAMS:     'equipos',
@@ -14,6 +17,8 @@ const SHEETS = {
   NODES:     'nodos',
   EDGES:     'conexiones',
   META:      'meta',
+  USERS:     'usuarios',
+  FOLDERS:   'carpetas',
 };
 
 const HEADERS = {
@@ -23,6 +28,8 @@ const HEADERS = {
   nodos:      ['id','flowId','tipo','titulo','descripcion','posX','posY','posZ','refFlowId','metadata','creadoEn','actualizadoEn'],
   conexiones: ['id','flowId','sourceId','targetId','condicion','etiqueta','creadoEn','tipo','sourceHandle','targetHandle'],
   meta:       ['clave','valor','actualizadoEn'],
+  usuarios:   ['id','correo','nombre','rol','activo','creadoEn','actualizadoEn','passwordTemporal','passwordEncriptada'],
+  carpetas:   ['id','nombre','descripcion','creadoEn','actualizadoEn'],
 };
 
 // ══════════════════════════════════════════════════════════════════
@@ -174,11 +181,22 @@ function _route(e = {}, allowWrites = false) {
     const isRead = /^(get|ping)/.test(p.action);
     if (!isRead && !allowWrites) throw new Error('Las escrituras requieren POST');
 
+    // Todas las rutas, incluidas las antiguas, comparten la misma autorización.
+    if (p.action !== 'ping' && p.action !== 'login') _authorizeRequest(p, isRead);
+
     const map = {
       ping:              () => ({ pong: true, version: API_VERSION, ts: _now() }),
+      login:             () => _login(p.correo, p.password),
+      logout:            () => { CacheService.getScriptCache().remove('session:' + p.sessionToken); return { ok: true }; },
+      getSession:        () => _publicUser(_authorize(p.sessionToken)),
+      getUsers:          () => _rows('usuarios').map(_publicUser),
+      saveReader:        () => _saveReader(p),
+      getFolders:        () => _rows('carpetas'),
+      saveFolder:        () => _saveFolder(p),
+      deleteFolder:      () => _deleteFolder(p.id),
       setup:             () => _setupSpreadsheet(),
       getSchemaStatus:   () => validarBaseDeDatos(),
-      getData:           () => _rows(_canonicalSheet(p.sheet)),
+      getData:           () => { const name = _canonicalSheet(p.sheet); if (name === 'usuarios') throw new Error('Hoja privada'); return _rows(name); },
       insertRow:         () => _legacyInsert(p.sheet, p.payload),
       getStats:          () => _getStats(),
       // Equipos
@@ -216,7 +234,12 @@ function _route(e = {}, allowWrites = false) {
 
     const fn = Object.prototype.hasOwnProperty.call(map, p.action) && map[p.action];
     if (!fn) throw new Error('Acción desconocida: ' + p.action);
-    const data = isRead ? fn() : _withWriteLock(() => p.action === 'setup' ? fn() : _mutateTables(fn));
+    const data = isRead ? fn() : _withWriteLock(() => {
+      // Las tablas leídas antes de esperar el bloqueo pueden haberse actualizado.
+      _requestStore.tables = {};
+      if (p.action !== 'login') _authorizeRequest(p, false);
+      return p.action === 'setup' ? fn() : _mutateTables(fn);
+    });
     out.setContent(JSON.stringify({ success: true, data, ...(p.action === 'insertRow' ? { message: 'Registro creado con éxito' } : {}) }));
   } catch(err) {
     out.setContent(JSON.stringify({ success: false, error: err.message }));
@@ -229,12 +252,265 @@ function _route(e = {}, allowWrites = false) {
 //  UTILIDADES
 // ══════════════════════════════════════════════════════════════════
 let _requestStore = null;
+function _authorizeRequest(p, isRead) {
+  const user = _authorize(p.sessionToken);
+  if (((!isRead && p.action !== 'logout') || ['getUsers', 'getSchemaStatus'].includes(p.action)) && user.rol !== 'administrador') throw new Error('FORBIDDEN: solo el administrador puede modificar datos');
+  if (p.action === 'getData' && _canonicalSheet(p.sheet) === 'meta' && user.rol !== 'administrador') throw new Error('FORBIDDEN: hoja privada');
+}
+// Solo se ejecuta manualmente desde el editor de Apps Script, nunca por HTTP.
+// Configura ADMIN_EMAIL, ADMIN_PASSWORD y opcionalmente ADMIN_NAME en propiedades.
+function configurarAdministrador() {
+  return _withWriteLock(() => {
+    _setupSpreadsheet();
+    const props = PropertiesService.getScriptProperties();
+    const correo = _email(props.getProperty('ADMIN_EMAIL'));
+    const password = props.getProperty('ADMIN_PASSWORD');
+    _validatePassword(password);
+    const users = _rows('usuarios'), admins = users.filter(u => u.rol === 'administrador');
+    if (admins.length > 1) throw new Error('Debe existir un único administrador en usuarios');
+    const old = admins[0] || users.find(u => _normalizeEmail(u.correo) === correo);
+    if (users.some(u => u.id !== old?.id && _normalizeEmail(u.correo) === correo)) throw new Error('Correo duplicado');
+    if (!props.getProperty('AUTH_SECRET')) props.setProperty('AUTH_SECRET', _uid() + _uid());
+    const record = { id: old?.id || _uid(), correo, nombre: props.getProperty('ADMIN_NAME') || old?.nombre || 'Administrador', rol: 'administrador', activo: true,
+      creadoEn: old?.creadoEn || _now(), actualizadoEn: _now(), ..._credentials(password) };
+    const row = HEADERS.usuarios.map(key => record[key]);
+    if (old) _updateMapped('usuarios', _findRow('usuarios', old.id), row); else _appendMapped('usuarios', row);
+    props.deleteProperty('ADMIN_PASSWORD');
+    return _publicUser(record);
+  });
+}
+function _normalizeEmail(value) { return String(value || '').trim().toLowerCase(); }
+function _email(value) {
+  const correo = _normalizeEmail(value);
+  if (correo.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) throw new Error('Correo inválido');
+  return correo;
+}
+function _validatePassword(password) {
+  if (typeof password !== 'string' || password.length < 12 || password.length > 256) throw new Error('La contraseña debe tener entre 12 y 256 caracteres');
+}
+function _publicUser(user) {
+  const { id, correo, nombre, rol, activo, creadoEn, actualizadoEn } = user;
+  return { id, correo, nombre, rol, activo, creadoEn, actualizadoEn };
+}
+// PBKDF2-HMAC-SHA256 con salt individual y clave previa protegida por un secreto del script.
+// No se almacenan contraseñas legibles ni se devuelven hashes en la API.
+function _sha256Block(state, block, words) {
+  const constants = SHA256_K;
+  words.set(block);
+  for (let i = 16; i < 64; i++) {
+    const x = words[i-15], y = words[i-2];
+    const s0 = ((x >>> 7) | (x << 25)) ^ ((x >>> 18) | (x << 14)) ^ (x >>> 3);
+    const s1 = ((y >>> 17) | (y << 15)) ^ ((y >>> 19) | (y << 13)) ^ (y >>> 10);
+    words[i] = (words[i-16] + s0 + words[i-7] + s1) | 0;
+  }
+  let [a,b,c,d,e,f,g,h] = state;
+  for (let i = 0; i < 64; i++) {
+    const s1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
+    const t1 = (h + s1 + ((e & f) ^ (~e & g)) + constants[i] + words[i]) | 0;
+    const s0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
+    const t2 = (s0 + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+    h=g; g=f; f=e; e=(d+t1)|0; d=c; c=b; b=a; a=(t1+t2)|0;
+  }
+  state[0]=(state[0]+a)|0; state[1]=(state[1]+b)|0; state[2]=(state[2]+c)|0; state[3]=(state[3]+d)|0;
+  state[4]=(state[4]+e)|0; state[5]=(state[5]+f)|0; state[6]=(state[6]+g)|0; state[7]=(state[7]+h)|0;
+}
+// Calcula los bloques repetidos de PBKDF2 en JS, evitando 600.000 llamadas a servicios GAS.
+// El resultado se contrasta con node:crypto en las pruebas; salida de 256 bits.
+function _pbkdf2Hash(key, salt, iterations) {
+  const first = Utilities.computeHmacSha256Signature(Utilities.newBlob(salt).getBytes().concat([0,0,0,1]), key);
+  if (key.length > 64) key = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, key);
+  const words = new Int32Array(64), block = new Int32Array(16);
+  const innerPrefix = new Int32Array(SHA256_INITIAL), outerPrefix = new Int32Array(SHA256_INITIAL);
+  for (let i = 0; i < 64; i++) block[i >>> 2] |= (((key[i] || 0) & 255) ^ 0x36) << (24 - (i % 4) * 8);
+  _sha256Block(innerPrefix, block, words); block.fill(0);
+  for (let i = 0; i < 64; i++) block[i >>> 2] |= (((key[i] || 0) & 255) ^ 0x5c) << (24 - (i % 4) * 8);
+  _sha256Block(outerPrefix, block, words); block.fill(0); block[8] = 0x80000000; block[15] = 768;
+  const inner = new Int32Array(8), outer = new Int32Array(8), result = new Int32Array(8);
+  for (let i = 0; i < 32; i++) outer[i >>> 2] |= (first[i] & 255) << (24 - (i % 4) * 8);
+  result.set(outer);
+  for (let iteration = 1; iteration < iterations; iteration++) {
+    block.set(outer); inner.set(innerPrefix); _sha256Block(inner, block, words);
+    block.set(inner); outer.set(outerPrefix); _sha256Block(outer, block, words);
+    for (let i = 0; i < 8; i++) result[i] ^= outer[i];
+  }
+  const bytes = [];
+  for (let i = 0; i < 32; i++) bytes.push((result[i >>> 2] >>> (24 - (i % 4) * 8)) << 24 >> 24);
+  return Utilities.base64Encode(bytes);
+}
+function _passwordHash(password, salt, iterations = PASSWORD_ITERATIONS, pepper = true) {
+  const secret = PropertiesService.getScriptProperties().getProperty('AUTH_SECRET');
+  if (pepper && !secret) throw new Error('Ejecuta procesarContraseñasTemporales() para configurar el acceso');
+  const key = pepper ? Utilities.computeHmacSha256Signature(password, secret, Utilities.Charset.UTF_8) : Utilities.newBlob(password).getBytes();
+  return _pbkdf2Hash(key, salt, iterations);
+}
+function _credentials(password) {
+  _validatePassword(password);
+  const properties = PropertiesService.getScriptProperties();
+  if (!properties.getProperty('AUTH_SECRET')) properties.setProperty('AUTH_SECRET', _uid() + _uid());
+  const salt = _uid() + _uid();
+  return { passwordTemporal: '', passwordEncriptada: JSON.stringify({ scheme: 'pbkdf2-hmac-sha256-v2', iterations: PASSWORD_ITERATIONS, salt, hash: _passwordHash(password, salt), version: _uid(), pepper: true }) };
+}
+function _credential(user) {
+  if (!user) return null;
+  if (user.passwordEncriptada) {
+    try {
+      const data = JSON.parse(user.passwordEncriptada);
+      const supported = (data.scheme === 'pbkdf2-hmac-sha256-v1' && data.iterations === 10000) || (data.scheme === 'pbkdf2-hmac-sha256-v2' && data.iterations === PASSWORD_ITERATIONS && typeof data.pepper === 'boolean');
+      if (supported && typeof data.salt === 'string' && data.salt.length <= 150 && typeof data.hash === 'string' && data.hash.length === 44 && typeof data.version === 'string') return data;
+    } catch (_) { /* Una credencial dañada no concede acceso. */ }
+    return null;
+  }
+  // Permite convertir registros de 1.6.0 sin cambiar la contraseña ni los IDs.
+  return user.passwordHash && user.passwordSalt && user.passwordVersion ? { scheme: 'pbkdf2-hmac-sha256-v1', iterations: 10000, salt: user.passwordSalt, hash: user.passwordHash, version: user.passwordVersion } : null;
+}
+function _syncTemporaryPassword(user) {
+  const temporary = user.passwordTemporal;
+  let credentials;
+  if (temporary !== '' && temporary != null) credentials = _credentials(temporary);
+  else if (!user.passwordEncriptada && _credential(user)) credentials = { passwordTemporal: '', passwordEncriptada: JSON.stringify(_credential(user)) };
+  else return user;
+  const updated = { ...user, ...credentials, actualizadoEn: _now() };
+  _updateMapped('usuarios', _findRow('usuarios', user.id), HEADERS.usuarios.map(key => updated[key]));
+  return updated;
+}
+function _userTransaction(fn) {
+  const previous = _requestStore;
+  _requestStore = { tables: {} };
+  try { return _mutateTables(fn); } finally { _requestStore = previous; }
+}
+// Para cambios por API, importaciones o filas creadas directamente en Sheets.
+function procesarContraseñasTemporales() {
+  return _withWriteLock(() => _userTransaction(() => {
+    let procesados = 0;
+    _rows('usuarios').forEach(user => {
+      if ((user.passwordTemporal !== '' && user.passwordTemporal != null) || (!user.passwordEncriptada && _credential(user))) { _syncTemporaryPassword(user); procesados++; }
+    });
+    return { procesados };
+  }));
+}
+// Trigger instalable: procesa únicamente las filas de la columna temporal editada.
+function alEditarUsuarios(e) {
+  if (!e?.range || e.range.getSheet().getParent().getId() !== SPREADSHEET_ID || e.range.getSheet().getName().trim().toLowerCase() !== 'usuarios') return;
+  const sheet = e.range.getSheet(), columns = _columnNames(sheet), column = columns.indexOf('passwordTemporal') + 1;
+  if (!column || column < e.range.getColumn() || column >= e.range.getColumn() + e.range.getNumColumns() || e.range.getLastRow() < 2) return;
+  return _withWriteLock(() => _userTransaction(() => {
+    const values = sheet.getRange(Math.max(2, e.range.getRow()), 1, e.range.getLastRow() - Math.max(2, e.range.getRow()) + 1, columns.length).getValues();
+    values.forEach(row => {
+      const user = _rObj(columns, row);
+      if (user.id) _syncTemporaryPassword(user);
+    });
+  }));
+}
+function instalarTriggerUsuarios() {
+  const installed = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'alEditarUsuarios' && t.getTriggerSourceId() === SPREADSHEET_ID);
+  if (!installed) ScriptApp.newTrigger('alEditarUsuarios').forSpreadsheet(SPREADSHEET_ID).onEdit().create();
+  return { instalado: true };
+}
+function _equalHash(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  let difference = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) difference |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  return difference === 0;
+}
+function _validUser(user) {
+  if (!user || ![true, 'true'].includes(user.activo) || !['administrador','lector'].includes(user.rol)) return false;
+  return user.rol !== 'administrador' || _rows('usuarios').filter(u => u.rol === 'administrador').length === 1;
+}
+function _login(correo, password) {
+  correo = _normalizeEmail(correo);
+  if (!correo || correo.length > 254 || typeof password !== 'string' || password.length > 256) throw new Error('Credenciales incorrectas o cuenta sin acceso');
+  const cache = CacheService.getScriptCache();
+  const attemptKey = 'login:' + Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, correo));
+  const attempts = Number(cache.get(attemptKey) || 0);
+  if (attempts >= 5) throw new Error('Demasiados intentos. Espera 15 minutos antes de volver a intentar');
+  cache.put(attemptKey, String(attempts + 1), 900);
+  const matches = _rows('usuarios').filter(u => _normalizeEmail(u.correo) === correo);
+  let user = matches.length === 1 ? matches[0] : null;
+  if (_validUser(user)) user = _syncTemporaryPassword(user);
+  let credential = _credential(user);
+  // Se calcula también para cuentas desconocidas, sin exponer si el correo existe.
+  const candidate = _passwordHash(password, credential?.salt || 'flowmapper-unknown-account', credential?.iterations || PASSWORD_ITERATIONS, credential ? credential.pepper !== false : Boolean(PropertiesService.getScriptProperties().getProperty('AUTH_SECRET')));
+  if (!_validUser(user) || !credential || !_equalHash(candidate, credential.hash)) throw new Error('Credenciales incorrectas o cuenta sin acceso');
+  // Los hashes de importación se refuerzan con el secreto privado tras verificar la clave.
+  if (credential.pepper === false || credential.scheme !== 'pbkdf2-hmac-sha256-v2') {
+    user = { ...user, ..._credentials(password), actualizadoEn: _now() };
+    _updateMapped('usuarios', _findRow('usuarios', user.id), HEADERS.usuarios.map(key => user[key]));
+    credential = _credential(user);
+  }
+  cache.remove(attemptKey);
+  const sessionToken = _uid() + _uid(), expiresAt = Date.now() + 3600000;
+  cache.put('session:' + sessionToken, JSON.stringify({ userId: user.id, passwordVersion: credential.version, expiresAt }), 3600);
+  return { sessionToken, expiresAt, user: _publicUser(user) };
+}
+function _authorize(token) {
+  if (typeof token !== 'string' || token.length > 150) throw new Error('UNAUTHORIZED: inicia sesión');
+  const raw = CacheService.getScriptCache().get('session:' + token);
+  if (!raw) throw new Error('UNAUTHORIZED: sesión vencida');
+  const session = JSON.parse(raw);
+  if (session.expiresAt <= Date.now()) throw new Error('UNAUTHORIZED: sesión vencida');
+  const user = _rows('usuarios').find(u => u.id === session.userId);
+  if (!_validUser(user) || user.passwordTemporal || !_credential(user) || _credential(user).version !== session.passwordVersion) throw new Error('UNAUTHORIZED: acceso revocado');
+  return user;
+}
+function _saveReader(d) {
+  const correo = _email(d.correo), users = _rows('usuarios');
+  const old = d.id ? users.find(u => u.id === d.id) : users.find(u => _normalizeEmail(u.correo) === correo);
+  if (d.id && !old) throw new Error('Lector no encontrado');
+  if (old && old.rol !== 'lector') throw new Error('No se puede modificar el administrador');
+  if (users.some(u => u.id !== old?.id && _normalizeEmail(u.correo) === correo)) throw new Error('Correo duplicado');
+  const nombre = String(d.nombre || '').trim();
+  if (!nombre) throw new Error('Nombre requerido');
+  const credentials = d.password ? _credentials(d.password) : old && _credential(old) ? { passwordTemporal: '', passwordEncriptada: JSON.stringify(_credential(old)) } : _credentials(d.password);
+  if (old && !d.password && old.passwordTemporal) throw new Error('Procesa la contraseña temporal antes de editar este lector');
+  if (old && (String(old.activo) === 'true') !== (d.activo !== false)) {
+    const credential = JSON.parse(credentials.passwordEncriptada);
+    credential.version = _uid(); credentials.passwordEncriptada = JSON.stringify(credential);
+  }
+  const ts = _now(), record = { id: old?.id || _uid(), correo, nombre, rol: 'lector', activo: d.activo !== false, creadoEn: old?.creadoEn || ts, actualizadoEn: ts, ...credentials };
+  const row = HEADERS.usuarios.map(key => record[key]);
+  if (old) _updateMapped('usuarios', _findRow('usuarios', old.id), row); else _appendMapped('usuarios', row);
+  return _publicUser(record);
+}
+function _saveFolder(d) {
+  const nombre = String(d.nombre || '').trim();
+  if (!nombre) throw new Error('Nombre de carpeta requerido');
+  const old = d.id ? _requireRecord('carpetas', d.id) : null, ts = _now();
+  const row = [old?.id || _uid(), nombre, String(d.descripcion || ''), old?.creadoEn || ts, ts];
+  if (old) _updateMapped('carpetas', _findRow('carpetas', old.id), row); else _appendMapped('carpetas', row);
+  return _rObj(HEADERS.carpetas, row);
+}
+function _deleteFolder(id) {
+  if (_teamsWithTags().some(t => t.carpetaId === id)) throw new Error('La carpeta contiene equipos. Reasígnalos antes de eliminarla');
+  return _delete('carpetas', id);
+}
+function _teamFolder(id) { return _rows('meta').find(r => r.clave === 'teamFolder:' + id)?.valor || ''; }
+function _saveTeamFolder(id, folder) {
+  if (folder) _requireRecord('carpetas', folder);
+  _upsertMeta('teamFolder:' + id, folder || '');
+  return folder || '';
+}
+function _segments(id) {
+  const value = _rows('meta').find(r => r.clave === 'flowSegments:' + id)?.valor;
+  return value ? JSON.parse(value) : [];
+}
+function _saveSegments(id, segments) {
+  if (!Array.isArray(segments) || segments.length > 50) throw new Error('Segmentos inválidos');
+  const ids = new Set();
+  segments.forEach(s => {
+    if (!s || typeof s.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(s.id) || ids.has(s.id) || typeof s.nombre !== 'string' || !s.nombre.trim() || typeof s.color !== 'string' || !/^#[a-fA-F0-9]{6}$/.test(s.color) || typeof s.criterio !== 'string' || typeof s.salida !== 'string') throw new Error('Configura ID, nombre, color, criterio y transición de cada segmento');
+    ids.add(s.id);
+  });
+  const previous = _rows('meta').find(r => r.clave === 'flowSegments:' + id);
+  const serialized = JSON.stringify(segments);
+  if ((!previous && !segments.length) || previous?.valor === serialized) return;
+  _upsertMeta('flowSegments:' + id, serialized);
+}
 const _ss = () => _requestStore
-  ? (_requestStore.spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID))
+  ? (_requestStore.spreadsheet || (_requestStore.spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID)))
   : SpreadsheetApp.openById(SPREADSHEET_ID);
 function _sheet(name) {
   const key = _canonicalSheet(name);
-  const sheets = _requestStore ? (_requestStore.sheets = _ss().getSheets()) : _ss().getSheets();
+  const sheets = _requestStore ? (_requestStore.sheets || (_requestStore.sheets = _ss().getSheets())) : _ss().getSheets();
   const matches = sheets.filter(s => s.getName().trim().toLowerCase() === key);
   if (matches.length > 1) throw new Error('Hojas ambiguas para ' + key);
   if (!matches.length) throw new Error('Hoja "' + name + '" no existe. Ejecuta crearBaseDeDatos()');
@@ -378,9 +654,10 @@ function _delete(name, id) {
     if (_rows('nodos').some(n => n.refFlowId === id && n.flowId !== id)) throw new Error('Otro flujo utiliza este flujo como referencia');
     _deleteWhere('conexiones', e => e.flowId === id);
     _deleteWhere('nodos', n => n.flowId === id);
+    _deleteWhere('meta', record => record.clave === 'flowSegments:' + id);
   }
   if (name === 'nodos') _deleteWhere('conexiones', e => e.sourceId === id || e.targetId === id);
-  if (name === 'equipos') _deleteWhere('meta', record => record.clave === _tagKey(id));
+  if (name === 'equipos') _deleteWhere('meta', record => record.clave === _tagKey(id) || record.clave === 'teamFolder:' + id);
   _deleteWhere(name, record => String(record.id) === String(id));
   return { deleted: id };
 }
@@ -420,14 +697,15 @@ function _saveTeamTag(id, value) {
 }
 function _teamsWithTags() {
   const tags = new Map(_rows('meta').map(row => [row.clave, row.valor]));
-  return _rows('equipos').map(team => ({ ...team, etiqueta: tags.get(_tagKey(team.id)) || '' }));
+  return _rows('equipos').map(team => ({ ...team, etiqueta: tags.get(_tagKey(team.id)) || '', carpetaId: tags.get('teamFolder:' + team.id) || '' }));
 }
 function _createTeam(d) {
   const id=_newId('equipos', d), ts=_now();
   const row=[id, d.nombre||'Nuevo Equipo', d.descripcion||'', d.color||'#c084fc', d.icono||'👥', d.creadoEn||ts, d.actualizadoEn||ts];
   _appendMapped('equipos', row);
   const etiqueta = d.etiqueta === undefined ? '' : _saveTeamTag(id, d.etiqueta);
-  return { ..._rObj(HEADERS.equipos, row), etiqueta };
+  const carpetaId = _saveTeamFolder(id, d.carpetaId);
+  return { ..._rObj(HEADERS.equipos, row), etiqueta, carpetaId };
 }
 function _updateTeam(d) {
   const ri=_findRow('equipos',d.id); if(ri<0) throw new Error('Equipo no encontrado');
@@ -435,7 +713,8 @@ function _updateTeam(d) {
   const row=[d.id, d.nombre??old.nombre, d.descripcion??old.descripcion, d.color??old.color, d.icono??old.icono, old.creadoEn, ts];
   _updateMapped('equipos', ri, row);
   const etiqueta = d.etiqueta === undefined ? _teamTag(d.id) : _saveTeamTag(d.id, d.etiqueta);
-  return { ..._rObj(HEADERS.equipos, row), etiqueta };
+  const carpetaId = d.carpetaId === undefined ? _teamFolder(d.id) : _saveTeamFolder(d.id, d.carpetaId);
+  return { ..._rObj(HEADERS.equipos, row), etiqueta, carpetaId };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -483,6 +762,7 @@ function _createNode(d) {
   _requireRecord('flujos', d.flowId);
   const id=_newId('nodos', d), ts=_now();
   const meta = typeof d.metadata==='object' ? JSON.stringify(d.metadata) : (d.metadata||'{}');
+  _validateNodeDocumentation(d.flowId, _parseMeta({ metadata: meta }).metadata);
   const row=[id, d.flowId, d.tipo||'paso', d.titulo||'Nuevo Paso', d.descripcion||'',
              parseFloat(d.posX)||0, parseFloat(d.posY)||0, parseFloat(d.posZ)||0,
              d.refFlowId||'', meta, d.creadoEn||ts, d.actualizadoEn||ts];
@@ -493,11 +773,18 @@ function _updateNode(d) {
   const ri=_findRow('nodos',d.id); if(ri<0) throw new Error('Nodo no encontrado');
   const old=_rows('nodos').find(r=>r.id===d.id), ts=_now();
   const meta = d.metadata ? (typeof d.metadata==='object'?JSON.stringify(d.metadata):d.metadata) : (old.metadata||'{}');
+  _validateNodeDocumentation(old.flowId, _parseMeta({ metadata: meta }).metadata);
   const row=[d.id, old.flowId, d.tipo??old.tipo, d.titulo??old.titulo, d.descripcion??old.descripcion,
              Number(d.posX ?? old.posX) || 0, Number(d.posY ?? old.posY) || 0,
              Number(d.posZ ?? old.posZ) || 0, d.refFlowId??old.refFlowId??'', meta, old.creadoEn, ts];
   _updateMapped('nodos', ri, row);
   return _parseMeta(_rObj(HEADERS.nodos, row));
+}
+
+function _validateNodeDocumentation(flowId, metadata = {}) {
+  if (metadata?.segmentId && (typeof metadata.segmentId !== 'string' || !_segments(flowId).some(s => s.id === metadata.segmentId))) throw new Error('El segmento del nodo no pertenece al flujo');
+  const quality = metadata?.calidad;
+  if (quality && (!['pendiente','cumple','no_cumple','no_aplica'].includes(quality.estado) || (quality.estado === 'no_aplica' && !String(quality.justificacion || '').trim()))) throw new Error('Revisión de calidad inválida');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -570,6 +857,13 @@ function _saveFullFlow(data) {
   if (old && (flow.teamId !== old.flow.teamId || flow.processId !== old.flow.processId)) throw new Error('No se puede cambiar el equipo o proceso de un flujo existente');
   if (old && flow.actualizadoEn !== old.flow.actualizadoEn) throw new Error('El flujo cambió en otra sesión. Vuelve a abrirlo antes de guardar.');
   const savedFlow = old ? old.flow : _createFlow(flow);
+  const segmentos = flow.segmentos === undefined ? old?.flow.segmentos || [] : flow.segmentos;
+  if (flow.segmentos !== undefined) _saveSegments(savedFlow.id, segmentos);
+  for (const node of nodes) {
+    if (node.metadata.segmentId && !segmentos.some(s => s.id === node.metadata.segmentId)) throw new Error('El segmento del nodo no pertenece al flujo');
+    const quality = node.metadata.calidad;
+    if (quality && (!['pendiente','cumple','no_cumple','no_aplica'].includes(quality.estado) || (quality.estado === 'no_aplica' && !String(quality.justificacion || '').trim()))) throw new Error('Revisión de calidad inválida');
+  }
   const savedNodes = nodes.map(node => {
     const previous = old && old.nodes.find(n => String(n.id) === String(node._tempId));
     return previous ? _updateNode({ ...node, id: previous.id }) : _createNode({ ...node, id: undefined, flowId: savedFlow.id });
@@ -590,7 +884,7 @@ function _saveFullFlow(data) {
   }
   const resultFlow = old ? _updateFlow(flow) : savedFlow;
   if (receiptKey) _upsertMeta(receiptKey, JSON.stringify({ flowId: resultFlow.id, actualizadoEn: resultFlow.actualizadoEn }));
-  return { flow: resultFlow, nodes: savedNodes, edges: savedEdges };
+  return { flow: { ...resultFlow, segmentos }, nodes: savedNodes, edges: savedEdges };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -602,7 +896,7 @@ function _getFullFlow(flowId) {
   const flow  = flows.find(f=>f.id===flowId);
   if (!flow) throw new Error('Flujo no encontrado: '+flowId);
   return {
-    flow,
+    flow: { ...flow, segmentos: _segments(flow.id) },
     nodes: _rows('nodos').filter(n=>n.flowId===flowId).map(_parseMeta),
     edges: _rows('conexiones').filter(e=>e.flowId===flowId),
   };

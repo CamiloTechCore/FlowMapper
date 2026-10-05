@@ -1,3 +1,4 @@
+import { useAuth } from '../../context/AuthContext';
 import TeamTag from '../../components/TeamTag';
 import { normalizeTeamTag } from '../../workflow/tags';
 import React, { useState } from 'react';
@@ -8,7 +9,8 @@ import { toast } from '../../hooks/useToast';
 const EMOJIS = ['👥','🎯','💼','🚀','🔧','🎨','📊','🧩','⚡','🛡','🌐','🔬','🎓','🏆','🤝','💡'];
 
 export default function TeamsPage({ onSelectTeam }) {
-  const { teams, processes, flows, createTeam, updateTeam, deleteTeam } = useData();
+  const { isAdmin } = useAuth();
+  const { teams, folders, processes, flows, createTeam, updateTeam, deleteTeam } = useData();
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ nombre: '', descripcion: '', color: '#c084fc', icono: '👥', etiqueta: '' });
   const [editingId, setEditingId] = useState(null);
@@ -46,7 +48,7 @@ export default function TeamsPage({ onSelectTeam }) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div className="topbar">
         <span className="topbar-title">👥 Equipos de Trabajo</span>
-        <button className="btn btn-primary" onClick={() => { setEditingId(null); setForm({ nombre: '', descripcion: '', color: '#c084fc', icono: '👥', etiqueta: '' }); setShowModal(true); }}>+ Nuevo Equipo</button>
+        {isAdmin && <button className="btn btn-primary" onClick={() => { setEditingId(null); setForm({ nombre: '', descripcion: '', color: '#c084fc', icono: '👥', etiqueta: '' }); setShowModal(true); }}>+ Nuevo Equipo</button>}
       </div>
 
       <div className="page-content">
@@ -55,7 +57,7 @@ export default function TeamsPage({ onSelectTeam }) {
             icon="👥"
             title="Sin equipos aún"
             sub="Crea tu primer equipo para comenzar a organizar los flujos"
-            action={<button className="btn btn-primary" onClick={() => { setEditingId(null); setForm({ nombre: '', descripcion: '', color: '#c084fc', icono: '👥', etiqueta: '' }); setShowModal(true); }}>+ Crear Equipo</button>}
+            action={isAdmin && <button className="btn btn-primary" onClick={() => { setEditingId(null); setForm({ nombre: '', descripcion: '', color: '#c084fc', icono: '👥', etiqueta: '' }); setShowModal(true); }}>+ Crear Equipo</button>}
           />
         ) : (
           <div className="grid-3">
@@ -82,15 +84,15 @@ export default function TeamsPage({ onSelectTeam }) {
                   <div className="card-footer">
                     <Badge variant="purple">{procs.length} procesos</Badge>
                     <Badge variant="cyan">{fls.length} flujos</Badge>
-                    <button className="btn btn-secondary btn-xs" aria-label={`Editar equipo ${team.nombre}`} onClick={e => { e.stopPropagation(); setEditingId(team.id); setForm({ ...team, etiqueta: team.etiqueta || '' }); setShowModal(true); }}>Editar</button>
-                    <button
+                    {isAdmin && <button className="btn btn-secondary btn-xs" aria-label={`Editar equipo ${team.nombre}`} onClick={e => { e.stopPropagation(); setEditingId(team.id); setForm({ ...team, etiqueta: team.etiqueta || '' }); setShowModal(true); }}>Editar</button>}
+                    {isAdmin && <button
                       className="btn btn-danger btn-xs"
                       style={{ marginLeft: 'auto' }}
                       aria-label={`Eliminar equipo ${team.nombre}`}
                       onClick={(e) => handleDelete(e, team.id)}
                     >
                       🗑
-                    </button>
+                    </button>}
                   </div>
                 </div>
               );
@@ -99,7 +101,7 @@ export default function TeamsPage({ onSelectTeam }) {
         )}
       </div>
 
-      {showModal && (
+      {isAdmin && showModal && (
         <Modal title={editingId ? "Editar equipo" : "👥 Nuevo Equipo"} onClose={() => { if (!saving) setShowModal(false); }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div className="form-group">
@@ -121,6 +123,7 @@ export default function TeamsPage({ onSelectTeam }) {
                 onChange={e => setForm(p => ({ ...p, descripcion: e.target.value }))}
               />
             </div>
+            <label className="form-group"><span className="form-label">Carpeta / grupo principal</span><select className="form-select" value={form.carpetaId || ""} onChange={e => setForm(p => ({ ...p, carpetaId: e.target.value }))}><option value="">Sin carpeta</option>{folders.map(f => <option key={f.id} value={f.id}>{f.nombre}</option>)}</select></label>
             <label className="form-group"><span className="form-label">Etiqueta del equipo</span><input className="form-input" placeholder="#Soporte" value={form.etiqueta} maxLength={51} onChange={e => setForm(p => ({ ...p, etiqueta: e.target.value }))} /><small>Una etiqueta por equipo, heredada por todos sus procesos y flujos. Déjala vacía para quitarla.</small></label>
             <div className="form-row">
               <div className="form-group">
